@@ -416,6 +416,164 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
   );
 
   // ============================================================
+  // Tool: read_notebook (read Jupyter notebook content)
+  // ============================================================
+  server.registerTool(
+    "read_notebook",
+    {
+      description: "Reads a Jupyter notebook (.ipynb) file and returns its code and markdown cells as structured text. Use this to understand what the notebook does before creating a diagram.",
+      inputSchema: z.object({
+        path: z.string().describe("Absolute or relative path to a .ipynb file."),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    async ({ path: notebookPath }): Promise<CallToolResult> => {
+      try {
+        const resolvedPath = path.resolve(notebookPath);
+        const raw = await fs.readFile(resolvedPath, "utf-8");
+        const notebook = JSON.parse(raw);
+
+        if (!notebook.cells || !Array.isArray(notebook.cells)) {
+          return {
+            content: [{ type: "text", text: "Invalid notebook format: no cells array found." }],
+            isError: true,
+          };
+        }
+
+        const output: string[] = [];
+        output.push(`# Notebook: ${path.basename(resolvedPath)}`);
+        output.push(`Total cells: ${notebook.cells.length}\n`);
+
+        for (let i = 0; i < notebook.cells.length; i++) {
+          const cell = notebook.cells[i];
+          const cellType = cell.cell_type ?? "unknown";
+          const source = Array.isArray(cell.source) ? cell.source.join("") : (cell.source ?? "");
+
+          if (!source.trim()) continue; // skip empty cells
+
+          output.push(`--- Cell ${i + 1} [${cellType}] ---`);
+          output.push(source);
+          output.push("");
+        }
+
+        return { content: [{ type: "text", text: output.join("\n") }] };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `Failed to read notebook: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // ============================================================
+  // Tool: save_excalidraw_file (write .excalidraw JSON to disk)
+  // ============================================================
+  server.registerTool(
+    "save_excalidraw_file",
+    {
+      description: "Saves Excalidraw elements as a .excalidraw JSON file to disk. The elements must be a valid JSON array string of Excalidraw elements (same format as create_view). Call read_me first to learn the element format.",
+      inputSchema: z.object({
+        path: z.string().describe("Absolute or relative path for the output .excalidraw file."),
+        elements: z.string().describe("JSON array string of Excalidraw elements."),
+      }),
+    },
+    async ({ path: outputPath, elements }): Promise<CallToolResult> => {
+      if (elements.length > MAX_INPUT_BYTES) {
+        return {
+          content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit.` }],
+          isError: true,
+        };
+      }
+
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(elements);
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Invalid JSON in elements: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+
+      // Filter out pseudo-elements (cameraUpdate, delete, restoreCheckpoint)
+      const drawableElements = parsed.filter(
+        (el: any) => el.type !== "cameraUpdate" && el.type !== "delete" && el.type !== "restoreCheckpoint"
+      );
+
+      // Expand shorthand labels into bound text elements so it works natively in .excalidraw files
+      const expandedElements: any[] = [];
+      for (const el of drawableElements) {
+        if (el.label && typeof el.label === "object") {
+          const { text, fontSize, strokeColor } = el.label;
+          delete el.label;
+          if (text) {
+            const textId = `text_${el.id || Math.random().toString(36).slice(2)}`;
+            el.boundElements = el.boundElements || [];
+            el.boundElements.push({ type: "text", id: textId });
+            
+            const fSize = fontSize || 20;
+            const lines = text.split('\n');
+            const maxLineLen = Math.max(...lines.map((l: string) => l.length));
+            const estimatedWidth = maxLineLen * fSize * 0.55;
+            const estimatedHeight = lines.length * fSize * 1.25;
+
+            expandedElements.push(el);
+            expandedElements.push({
+              type: "text",
+              id: textId,
+              x: el.x + (el.width || 0) / 2 - estimatedWidth / 2,
+              y: el.y + (el.height || 0) / 2 - estimatedHeight / 2,
+              width: estimatedWidth,
+              height: estimatedHeight,
+              text: text,
+              originalText: text,
+              fontSize: fSize,
+              fontFamily: 1, // Virgil
+              textAlign: "center",
+              verticalAlign: "middle",
+              containerId: el.id,
+              strokeColor: strokeColor || el.strokeColor || "#1e1e1e",
+              autoResize: true,
+              lineHeight: 1.25
+            });
+            continue;
+          }
+        }
+        expandedElements.push(el);
+      }
+
+      // Build a valid .excalidraw file structure
+      const excalidrawFile = {
+        type: "excalidraw",
+        version: 2,
+        source: "mcp-excalidraw-agent",
+        elements: expandedElements,
+        appState: {
+          gridSize: null,
+          viewBackgroundColor: "#ffffff",
+        },
+        files: {},
+      };
+
+      try {
+        const resolvedPath = path.resolve(outputPath);
+        // Ensure parent directory exists
+        await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+        await fs.writeFile(resolvedPath, JSON.stringify(excalidrawFile, null, 2));
+        return {
+          content: [{ type: "text", text: `Excalidraw file saved to: ${resolvedPath}` }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `Failed to save file: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // ============================================================
   // Tool 2: create_view (Excalidraw SVG)
   // ============================================================
   registerAppTool(server,
