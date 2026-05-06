@@ -7,7 +7,9 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { z } from "zod/v4";
 import type { CheckpointStore } from "./checkpoint-store.js";
+import { fetchIconAsBase64, registerIconTools } from "./icons.js"; 
 
+// Note: use .js extension for compiled Node execution!
 /** Maximum allowed size for element/data input strings (5 MB). */
 const MAX_INPUT_BYTES = 5 * 1024 * 1024;
 
@@ -383,6 +385,12 @@ Then use these colors on the dark background:
 | Dark Red | \`#5c1a1a\` | Error, critical |
 | Dark Teal | \`#1a4d4d\` | Storage, data |
 
+
+**Icon (Image)**: \`{ "type": "image", "id": "i1", "x": 100, "y": 100, "width": 24, "height": 24, "iconId": "lucide:database" }\`
+- Use the \`search_icons\` tool to find valid \`iconId\`s.
+- Always use \`"type": "image"\`. The server will automatically fetch the SVG.
+
+
 **Stroke/arrow colors (on dark):**
 Use the Primary Colors from above — they're bright enough on dark backgrounds. For shape borders, use slightly lighter variants or \`#555555\` for subtle outlines.
 
@@ -469,6 +477,9 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
   // ============================================================
   // Tool: save_excalidraw_file (write .excalidraw JSON to disk)
   // ============================================================
+  
+  registerIconTools(server);
+  
   server.registerTool(
     "save_excalidraw_file",
     {
@@ -503,7 +514,21 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
 
       // Expand shorthand labels into bound text elements so it works natively in .excalidraw files
       const expandedElements: any[] = [];
+      const files: Record<string, any> = {};
+
       for (const el of drawableElements) {
+        // --- NEW ICON LOGIC ---
+        if (el.type === "image" && el.iconId) {
+          try {
+            const dataURL = await fetchIconAsBase64(el.iconId);
+            const fileId = crypto.randomUUID().replace(/-/g, "");
+            el.fileId = fileId;
+            el.status = "pending";
+            files[fileId] = { mimeType: "image/svg+xml", id: fileId, dataURL, created: Date.now() };
+          } catch (e) {}
+        }
+        // --- END NEW ICON LOGIC ---
+
         if (el.label && typeof el.label === "object") {
           const { text, fontSize, strokeColor } = el.label;
           delete el.label;
@@ -553,7 +578,7 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
           gridSize: null,
           viewBackgroundColor: "#ffffff",
         },
-        files: {},
+        files: files,
       };
 
       try {
@@ -651,16 +676,41 @@ Call read_me first to learn the element format.`,
         : "";
 
       const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
-      await store.save(checkpointId, { elements: resolvedElements });
+
+      // --- NEW ICON PROCESSING LOGIC ---
+      const files: Record<string, any> = {};
+      for (const el of resolvedElements) {
+        if (el.type === "image" && el.iconId) {
+          try {
+            const dataURL = await fetchIconAsBase64(el.iconId);
+            const fileId = crypto.randomUUID().replace(/-/g, "");
+            
+            el.fileId = fileId;
+            el.status = "pending"; // Required by Excalidraw
+            
+            files[fileId] = {
+              mimeType: "image/svg+xml",
+              id: fileId,
+              dataURL,
+              created: Date.now(),
+            };
+          } catch (e) {
+            console.error(`Failed to load icon ${el.iconId}`);
+          }
+        }
+      }
+      // --- END ICON PROCESSING LOGIC ---
+
+      await store.save(checkpointId, { elements: resolvedElements, files });
       return {
         content: [{ type: "text", text: `Diagram displayed! Checkpoint id: "${checkpointId}".
-If user asks to create a new diagram - simply create a new one from scratch.
-However, if the user wants to edit something on this diagram "${checkpointId}", take these steps:
-1) read widget context (using read_widget_context tool) to check if user made any manual edits first
-2) decide whether you want to make new diagram from scratch OR - use this one as starting checkpoint:
-  simply start from the first element [{"type":"restoreCheckpoint","id":"${checkpointId}"}, ...your new elements...]
-  this will use same diagram state as the user currently sees, including any manual edits they made in fullscreen, allowing you to add elements on top.
-  To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}` }],
+    If user asks to create a new diagram - simply create a new one from scratch.
+    However, if the user wants to edit something on this diagram "${checkpointId}", take these steps:
+    1) read widget context (using read_widget_context tool) to check if user made any manual edits first
+    2) decide whether you want to make new diagram from scratch OR - use this one as starting checkpoint:
+    simply start from the first element [{"type":"restoreCheckpoint","id":"${checkpointId}"}, ...your new elements...]
+    this will use same diagram state as the user currently sees, including any manual edits they made in fullscreen, allowing you to add elements on top.
+    To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}` }],
         structuredContent: { checkpointId },
       };
     },

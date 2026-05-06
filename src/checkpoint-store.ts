@@ -22,8 +22,8 @@ function validateCheckpointId(id: string): void {
 }
 
 export interface CheckpointStore {
-  save(id: string, data: { elements: any[] }): Promise<void>;
-  load(id: string): Promise<{ elements: any[] } | null>;
+  save(id: string, data: { elements: any[], files?: Record<string, any> }): Promise<void>;
+  load(id: string): Promise<{ elements: any[], files?: Record<string, any> } | null>;
 }
 
 export class FileCheckpointStore implements CheckpointStore {
@@ -32,7 +32,7 @@ export class FileCheckpointStore implements CheckpointStore {
     this.dir = path.join(os.tmpdir(), "excalidraw-mcp-checkpoints");
     fs.mkdirSync(this.dir, { recursive: true });
   }
-  async save(id: string, data: { elements: any[] }): Promise<void> {
+  async save(id: string, data: { elements: any[], files?: Record<string, any> }): Promise<void> {
     validateCheckpointId(id);
     const serialized = JSON.stringify(data);
     if (serialized.length > MAX_CHECKPOINT_BYTES) {
@@ -46,7 +46,7 @@ export class FileCheckpointStore implements CheckpointStore {
     await fs.promises.writeFile(filePath, serialized);
     await this.pruneOldCheckpoints();
   }
-  async load(id: string): Promise<{ elements: any[] } | null> {
+  async load(id: string): Promise<{ elements: any[], files?: Record<string, any> } | null> {
     validateCheckpointId(id);
     const filePath = path.join(this.dir, `${id}.json`);
     if (!path.resolve(filePath).startsWith(path.resolve(this.dir) + path.sep)) {
@@ -83,7 +83,7 @@ export class FileCheckpointStore implements CheckpointStore {
 
 const memoryStore = new Map<string, string>();
 export class MemoryCheckpointStore implements CheckpointStore {
-  async save(id: string, data: { elements: any[] }): Promise<void> {
+  async save(id: string, data: { elements: any[], files?: Record<string, any> }): Promise<void> {
     validateCheckpointId(id);
     const serialized = JSON.stringify(data);
     if (serialized.length > MAX_CHECKPOINT_BYTES) {
@@ -96,7 +96,7 @@ export class MemoryCheckpointStore implements CheckpointStore {
       if (oldest !== undefined) memoryStore.delete(oldest);
     }
   }
-  async load(id: string): Promise<{ elements: any[] } | null> {
+  async load(id: string): Promise<{ elements: any[], files?: Record<string, any> } | null> {
     validateCheckpointId(id);
     const raw = memoryStore.get(id);
     if (!raw) return null;
@@ -117,7 +117,7 @@ export class RedisCheckpointStore implements CheckpointStore {
     }
     return this.redis;
   }
-  async save(id: string, data: { elements: any[] }): Promise<void> {
+  async save(id: string, data: { elements: any[], files?: Record<string, any> }): Promise<void> {
     validateCheckpointId(id);
     const serialized = JSON.stringify(data);
     if (serialized.length > MAX_CHECKPOINT_BYTES) {
@@ -126,7 +126,7 @@ export class RedisCheckpointStore implements CheckpointStore {
     const redis = await this.getRedis();
     await redis.set(`cp:${id}`, serialized, { ex: REDIS_TTL_SECONDS });
   }
-  async load(id: string): Promise<{ elements: any[] } | null> {
+  async load(id: string): Promise<{ elements: any[], files?: Record<string, any> } | null> {
     validateCheckpointId(id);
     const redis = await this.getRedis();
     const raw = await redis.get(`cp:${id}`);
