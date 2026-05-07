@@ -8,4 +8,5 @@ bun.lock
 opencode.json
 data/
 .env
-agent/
+agent/__pycache__/
+ideas.md

@@ -677,7 +677,7 @@ Call read_me first to learn the element format.`,
 
       const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
 
-      // --- NEW ICON PROCESSING LOGIC ---
+      // --- ICON PROCESSING LOGIC ---
       const files: Record<string, any> = {};
       for (const el of resolvedElements) {
         if (el.type === "image" && el.iconId) {
