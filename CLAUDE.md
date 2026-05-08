@@ -1,34 +1,95 @@
-# Excalidraw MCP App Server
+# JupyterDraw MCP App Server
 
 Standalone MCP server that streams Excalidraw diagrams as SVG with hand-drawn animations.
 
 ## Architecture
 
 ```
-server.ts          → 2 tools (read_me, create_view) + resource + cheat sheet
-main.ts            → HTTP (Streamable) + stdio transports
-src/mcp-app.tsx    → ExcalidrawAppCore (widget logic) + ExcalidrawApp (useApp wrapper)
-src/mcp-entry.tsx  → Production entry point: createRoot + ExcalidrawApp
-src/global.css     → Animations (stroke draw-on, fade-in) + auto-resize
-src/dev.tsx        → Dev entry point: mock app + sample elements + control panel
-src/dev-mock.ts    → Mock MCP App with event simulation (sendToolInput, streamElements, etc.)
-index-dev.html     → Dev HTML entry (served by vite dev server)
-vite.config.dev.ts → Dev-only vite config (resolves from node_modules, no esm.sh externals)
+src/
+├── server.ts              → Thin orchestrator: registers tools, prompts & resources
+├── main.ts                → HTTP (Streamable) + stdio transports
+├── core/
+│   ├── checkpoint-store.ts → CheckpointStore interface + File/Memory/Redis implementations
+│   ├── icons.ts            → Iconify API: fetchIconAsBase64, searchIcons
+│   └── elements.ts         → Shared element processing: parse, resolve checkpoints,
+│                              expand labels, process icons, structural feedback
+├── tools/
+│   ├── shared.ts           → read_me, read_notebook, search_icons
+│   ├── interactive.ts      → create_view (UI), export_to_excalidraw, save/read_checkpoint, resource
+│   └── automatic.ts        → draft_view (headless), save_excalidraw_file
+├── prompts/
+│   ├── excalidraw-spec.md  → Excalidraw element format cheat sheet
+│   ├── interactive.md      → Interactive persona instructions
+│   ├── automatic.md        → Automatic/headless persona instructions
+│   └── index.ts            → Loads .md files + registers MCP Prompts
+├── mcp-app.tsx             → ExcalidrawAppCore (widget logic) + ExcalidrawApp (useApp wrapper)
+├── mcp-entry.tsx           → Production entry point: createRoot + ExcalidrawApp
+├── global.css              → Animations (stroke draw-on, fade-in) + auto-resize
+├── edit-context.ts         → User edit tracking + diff computation
+├── dev.tsx                 → Dev entry point: mock app + sample elements + control panel
+├── dev-mock.ts             → Mock MCP App with event simulation
+├── pencil-audio.ts / sounds.ts → Audio assets
+index-dev.html              → Dev HTML entry (served by vite dev server)
+vite.config.dev.ts          → Dev-only vite config
+agent/
+├── agent.py                → Headless MCP client (fast + iterative modes)
+├── render_preview.py       → Pillow-based visual preview for iterative feedback
+└── batch_generate.py       → Batch diagram generation
 ```
 
 ## Tools
 
-### `read_me` (text tool, no UI)
-Returns a cheat sheet with element format, color palettes, coordinate tips, and examples. The model should call this before `create_view`.
+### Shared Tools (tools/shared.ts)
 
-### `create_view` (UI tool)
+#### `read_me` (text tool, no UI)
+
+Returns a cheat sheet with element format, color palettes, coordinate tips, and examples. The model should call this before `create_view` or `draft_view`.
+
+#### `read_notebook` (text tool)
+
+Reads a Jupyter notebook (.ipynb) file and returns its code and markdown cells as structured text.
+
+#### `search_icons` (text tool)
+
+Searches Iconify for icon identifiers to use in diagrams.
+
+### Interactive Tools (tools/interactive.ts)
+
+#### `create_view` (UI tool)
+
 Takes `elements` — a JSON string of standard Excalidraw elements. The widget parses partial JSON during streaming and renders via `exportToSvg` + morphdom diffing. No Excalidraw React canvas component — pure SVG rendering.
 
 **Screenshot as model context:** After final render, the SVG is captured as a 512px-max PNG and sent via `app.updateModelContext()` so the model can see the diagram and iterate on user feedback.
 
+#### `export_to_excalidraw` (app-only)
+
+Server-side proxy that uploads diagrams to excalidraw.com and returns shareable URLs.
+
+#### `save_checkpoint` / `read_checkpoint` (app-only)
+
+Widget-private tools for persisting and reading user edits.
+
+### Automatic Tools (tools/automatic.ts)
+
+#### `draft_view` (headless)
+
+Like `create_view` but without UI rendering. Returns structural feedback (element count, bounding box, overlap detection) and a checkpoint ID for iterative building. Used by the headless agent.
+
+#### `save_excalidraw_file`
+
+Saves elements as a `.excalidraw` JSON file to disk. Expands label shorthands into proper bound text elements.
+
+### MCP Prompts
+
+Two MCP Prompts are registered for persona injection:
+
+- `diagram_interactive`: Cheat sheet + interactive workflow instructions
+- `diagram_automatic`: Cheat sheet + autonomous workflow instructions
+
 ## Key Design Decisions
 
 ### Standard Excalidraw JSON — no extensions
+
 The input is standard Excalidraw element JSON. No `label` on containers, no `start`/`end` on arrows. These are Excalidraw's internal "skeleton" API (`convertToExcalidrawElements`) — not the standard format.
 
 **Why:** Standard format means any `.excalidraw` file's elements array works as input.
@@ -36,29 +97,37 @@ The input is standard Excalidraw element JSON. No `label` on containers, no `sta
 **Trade-off:** Labels require separate text elements with manually computed centered coordinates. The cheat sheet teaches the formula: `x = shape.x + (shape.width - text.width) / 2`.
 
 ### No `convertToExcalidrawElements`
+
 We tried Excalidraw's skeleton API. Problems:
+
 1. Needs font metrics at conversion time (canvas `measureText`)
 2. Non-standard format
 3. Added complexity for marginal benefit
 
 ### SVG-only rendering (no Excalidraw React canvas)
+
 The widget uses `exportToSvg` for ALL rendering — no `<Excalidraw>` React component.
 
 **Why:**
+
 - Eliminates blink on final render (no component swap from SVG preview to canvas)
 - Loads Virgil hand-drawn font from the start (no `skipInliningFonts`)
 - morphdom works on SVG DOM — smooth diffing between streaming updates
 
 ### Auto-sizing
+
 The container has no fixed height. SVG gets `width: 100%` + `height: auto` with the `width` attribute removed. The SVG's `viewBox` preserves aspect ratio, so height scales proportionally to content.
 
 ### CSP: `esm.sh` allowed
+
 Excalidraw loads the Virgil font from `esm.sh` at runtime. The resource's `_meta.ui.csp.resourceDomains` includes `https://esm.sh`.
 
 ### `prefersBorder: true`
+
 Set on the resource content's `_meta.ui` so the host renders a border/background around the widget.
 
 ### Fullscreen mode
+
 Supports `app.requestDisplayMode({ mode: "fullscreen" })`. Button appears on hover (top-right), hidden in fullscreen (host provides exit UI). Escape key exits fullscreen.
 
 ## Checkpoint System
@@ -66,6 +135,7 @@ Supports `app.requestDisplayMode({ mode: "fullscreen" })`. Button appears on hov
 Two-tier storage for diagram state persistence:
 
 ### Architecture
+
 1. **Server-side store** (primary): `CheckpointStore` interface with 3 implementations:
    - `FileCheckpointStore` — local dev, writes JSON to `$TMPDIR/excalidraw-mcp-checkpoints/`
    - `MemoryCheckpointStore` — Vercel fallback (in-memory Map, lost on cold start)
@@ -75,12 +145,14 @@ Two-tier storage for diagram state persistence:
 2. **localStorage** (widget-side cache): Fast local cache keyed by `excalidraw:<checkpointId>` for persisting user edits across page reloads within the same session.
 
 ### Flow
+
 - `create_view` resolves `restoreCheckpoint` references server-side, saves fully resolved state, returns `checkpointId`
 - Widget reads checkpoints via `read_checkpoint` server tool (private, app-only visibility)
 - User edits in fullscreen sync back to server via `save_checkpoint` server tool (debounced)
 - `cameraUpdate` elements are stored as part of checkpoint data (not a separate viewport field)
 
 ### Key Design Decisions
+
 - Server resolves checkpoints so the model never needs to re-send full element arrays
 - `containerId` filtering ensures bound text elements are deleted with their containers
 - Camera aspect ratio check nudges model toward 4:3 ratios
@@ -127,6 +199,7 @@ npm run dev:ui
 ## Rendering Pipeline
 
 ### Streaming (`ontoolinputpartial`)
+
 1. `parsePartialElements` tries `JSON.parse`, falls back to closing array after last `}`
 2. `excludeIncompleteLastItem` drops the last element (may be incomplete)
 3. Only re-renders when element **count** changes (not on every partial update)
@@ -135,22 +208,26 @@ npm run dev:ui
 6. morphdom preserves existing elements (no re-animation), only new elements trigger CSS animations
 
 ### Final render (`ontoolinput`)
+
 1. Parses complete JSON, renders with **original seeds** (stable final look)
 2. Same `exportToSvg` + morphdom path — seamless transition, no blink
 3. Sends PNG screenshot to model context (debounced 1.5s)
 
 ### CSS Animations (3 layers)
+
 - **Shapes** (`g, rect, circle, ellipse, text, image`): opacity fade-in 0.5s
 - **Lines** (`path, line, polyline, polygon`): stroke-dashoffset draw-on effect 0.6s
 - **Existing elements**: smooth `transition` on fill/stroke/opacity changes
 
 ### Key Libraries
+
 - **morphdom**: DOM diffing for SVG — preserves existing nodes, only new nodes get animations
 - **exportToSvg**: Excalidraw's SVG export (with fonts inlined by default)
 
 ## Cheat Sheet: Progressive Element Ordering
 
 The `server.ts` cheat sheet instructs the model to emit elements progressively:
+
 - BAD: all rectangles → all texts → all arrows (blank boxes stream, then labels appear late)
 - GOOD: background shapes first, then per node: shape → label → arrows → next node
 - This way each node appears complete with its label during streaming
@@ -158,6 +235,7 @@ The `server.ts` cheat sheet instructs the model to emit elements progressively:
 ## Debugging
 
 ### Dev workflow
+
 1. Edit source files
 2. `npm run build` (or `npm run dev` for watch mode)
 3. Restart the server process (module cache means hot reload doesn't pick up `server.ts` changes for tool definitions)
@@ -185,11 +263,13 @@ grep "Excalidraw" ~/Library/Logs/Claude/claude.ai-web.log | tail -20
 ```
 
 ### Widget debugging
+
 - The widget runs in an iframe
 - Check that `exportToSvg` isn't throwing (catches are silent)
 - morphdom issues: compare old vs new SVG structure in Elements panel
 
 ### Common issues
+
 - **No diagram appears:** Check that `ontoolinputpartial` is firing — the `elements` field might be nested differently (`params.arguments.elements` vs `params.elements`)
 - **All elements re-animate on each update:** morphdom not working — check that SVG structure is similar enough for diffing (different root SVG attributes can cause full replacement)
 - **Font is default (not hand-drawn):** `skipInliningFonts` was set to `true` — must be removed/false

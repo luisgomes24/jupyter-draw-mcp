@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from "child_process";
-import { renameSync, rmSync } from "fs";
+import { cpSync, mkdirSync, renameSync, rmSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -39,3 +39,12 @@ run('bun build "src/server.ts" --outdir dist --target node');
 run(
   'bun build "src/main.ts" --outfile "dist/index.js" --target node --banner "#!/usr/bin/env node"',
 );
+
+// 6. Copy prompt markdown files to dist/prompts/
+const promptsSrc = join(root, "src", "prompts");
+const promptsDist = join(root, "dist", "prompts");
+mkdirSync(promptsDist, { recursive: true });
+for (const f of ["excalidraw-spec.md", "interactive.md", "automatic.md"]) {
+  cpSync(join(promptsSrc, f), join(promptsDist, f));
+}
+console.log("> Copied prompt files to dist/prompts/");

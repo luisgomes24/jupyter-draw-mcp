@@ -107,32 +107,38 @@ No markdown code fences, no explanation text, no comments — ONLY the raw JSON 
 SYSTEM_PROMPT_ITERATIVE = DIAGRAM_STYLE + """
 ## Workflow (CRITICAL — follow this step by step)
 
-You are building the diagram ITERATIVELY with visual feedback. Follow this process:
-x
+You are building the diagram ITERATIVELY with structural and visual feedback. Follow this process:
+
 1. **Icons first**: Call `search_icons` to find appropriate icons for your nodes BEFORE drawing.
 
-2. **Build in 2–3 passes** using `create_view`:
+2. **Build in 2–3 passes** using `draft_view`:
    - **Pass 1**: Draw the main structure — primary boxes, key labels, and major arrows.
    - **Pass 2**: Use `restoreCheckpoint` from the previous checkpoint ID. Add secondary elements, annotations, details, and fix any issues.
    - **Pass 3** (if needed): Fix remaining overlaps or readability issues.
 
-3. **Review the preview**: After each `create_view` call, you will receive a rendered preview image of your diagram. Carefully inspect it for:
-   - Overlapping boxes or text
-   - Unreadable or hidden labels
-   - Missing connections
-   - Poor spacing or layout
-   Fix any issues in your next pass.
+3. **Review the feedback**: After each `draft_view` call, you will receive:
+   - Structural feedback from the server (element count, bounding box, overlap detection)
+   - A rendered preview image of your diagram
+   Carefully inspect both for:
+    - Overlapping boxes or text
+    - Unreadable or hidden labels
+    - Missing connections
+    - Poor spacing or layout
+    Fix any issues in your next pass.
 
-4. **Finalize**: When you are satisfied with the layout, call `save_excalidraw_file` with ALL the final elements to write the .excalidraw file.
+4. **Finalize**: When satisfied, call `save_excalidraw_file` with ALL the final elements to write the .excalidraw file.
+   You can use `read_checkpoint` to retrieve the full element state from your last checkpoint.
 
 IMPORTANT RULES:
-- `create_view` elements format is a JSON array string — same format as documented in the cheat sheet.
+- `draft_view` elements format is a JSON array string — same format as documented in the cheat sheet.
 - When using `restoreCheckpoint`, only provide NEW elements — the checkpoint's elements are restored automatically.
-- The preview image shows approximate positions — use it for spatial awareness and overlap detection.
 - You can delete elements from a checkpoint with `{"type": "delete", "ids": "id1,id2"}`.
-- For the final `save_excalidraw_file`, provide ALL elements (no restoreCheckpoint). You can get the full state from the last checkpoint.
+- For the final `save_excalidraw_file`, provide ALL elements (no restoreCheckpoint). Use `read_checkpoint` to get the full state.
 - Keep the total number of iterations to 2–3 passes (max 5).
 """
+
+
+
 
 
 def extract_json_array(text: str) -> str:
@@ -194,7 +200,7 @@ async def call_mcp_tool(session: ClientSession, tool_name: str, args: dict) -> s
 
 def _build_llm_tools(tools_result) -> list[dict]:
     """Build LLM tool definitions from MCP tools, exposing the ones we need."""
-    exposed_tools = {"search_icons", "create_view", "save_excalidraw_file"}
+    exposed_tools = {"search_icons", "draft_view", "save_excalidraw_file", "read_checkpoint"}
     llm_tools = []
     for t in tools_result.tools:
         if t.name in exposed_tools:
@@ -375,7 +381,7 @@ async def run_agent_iterative(
         f"Create an Excalidraw diagram that visualises this notebook's workflow.\n"
         f"Follow the iterative workflow from your instructions:\n"
         f"1. Search for icons first\n"
-        f"2. Build the diagram in 2-3 passes using create_view\n"
+        f"2. Build the diagram in 2-3 passes using draft_view\n"
         f"3. Review each preview and fix issues\n"
         f"4. Call save_excalidraw_file with the final elements when done\n\n"
         f"The output file should be saved to: {output_path}"
@@ -481,13 +487,13 @@ async def run_agent_iterative(
                 )
                 done = True
 
-            elif tool_name == "create_view":
+            elif tool_name == "draft_view":
                 elements_str = args.get("elements", "[]")
                 last_elements_json = elements_str
                 tool_result = await call_mcp_tool(
-                    session, "create_view", {"elements": elements_str},
+                    session, "draft_view", {"elements": elements_str},
                 )
-                print(f"[agent]   ← create_view result: {tool_result[:150]}")
+                print(f"[agent]   ← draft_view result: {tool_result[:150]}")
 
                 # Extract checkpoint ID from result
                 cp_match = re.search(r'Checkpoint id: "([^"]+)"', tool_result)
@@ -495,7 +501,7 @@ async def run_agent_iterative(
                     last_checkpoint_id = cp_match.group(1)
                     print(f"[agent]   ← Checkpoint: {last_checkpoint_id}")
 
-                # Add tool result
+                # Add tool result (includes structural feedback from server)
                 messages.append(
                     {
                         "role": "tool",
@@ -505,7 +511,7 @@ async def run_agent_iterative(
                     }
                 )
 
-                # Generate and inject visual feedback
+                # Generate and inject visual feedback (client-side rendering)
                 text_feedback, base64_png = _generate_visual_feedback(elements_str)
                 print(f"[agent]   ← Feedback: {text_feedback}")
 
@@ -523,9 +529,9 @@ async def run_agent_iterative(
                     )
                 messages.append({"role": "user", "content": feedback_content})
 
-            elif tool_name == "search_icons":
-                tool_result = await call_mcp_tool(session, "search_icons", args)
-                print(f"[agent]   ← Got icons result ({len(tool_result)} chars)")
+            elif tool_name in ("search_icons", "read_checkpoint"):
+                tool_result = await call_mcp_tool(session, tool_name, args)
+                print(f"[agent]   ← Got {tool_name} result ({len(tool_result)} chars)")
                 messages.append(
                     {
                         "role": "tool",
@@ -607,10 +613,17 @@ async def run_agent(notebook_path: str, output_path: str, mode: str = "iterative
             tool_names = [t.name for t in tools_result.tools]
             print(f"[agent] Available MCP tools: {tool_names}")
 
-            # Step 1: Get the Excalidraw cheat sheet
-            print("[agent] Step 1: Calling read_me...")
-            cheat_sheet = await call_mcp_tool(session, "read_me", {})
-            print(f"[agent]   ← Got cheat sheet ({len(cheat_sheet)} chars)")
+            # Step 1: Get the Excalidraw cheat sheet via MCP prompt
+            prompt_name = "diagram_automatic" if mode == "iterative" else "diagram_interactive"
+            print(f"[agent] Step 1: Fetching prompt '{prompt_name}'...")
+            try:
+                prompt_result = await session.get_prompt(prompt_name)
+                cheat_sheet = prompt_result.messages[0].content.text
+                print(f"[agent]   ← Got prompt ({len(cheat_sheet)} chars)")
+            except Exception as e:
+                print(f"[agent]   ! Prompt fetch failed ({e}), falling back to read_me...")
+                cheat_sheet = await call_mcp_tool(session, "read_me", {})
+                print(f"[agent]   ← Got cheat sheet ({len(cheat_sheet)} chars)")
 
             # Step 2: Read the notebook
             print(f"[agent] Step 2: Calling read_notebook({notebook_path})...")

@@ -1,6 +1,6 @@
 import { createMcpHandler } from "mcp-handler";
 import path from "node:path";
-import { createVercelStore } from "../src/checkpoint-store.js";
+import { createVercelStore } from "../src/core/checkpoint-store.js";
 import { registerTools } from "../src/server.js";
 
 const store = createVercelStore();

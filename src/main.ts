@@ -10,7 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import cors from "cors";
 import type { Request, Response } from "express";
-import { FileCheckpointStore } from "./checkpoint-store.js";
+import { FileCheckpointStore } from "./core/checkpoint-store.js";
 import { createServer } from "./server.js";
 
 /**
