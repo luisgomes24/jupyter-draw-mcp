@@ -29,8 +29,8 @@ export function registerIconTools(server: McpServer): void {
   server.registerTool("search_icons", {
     description: "Search for icons across Iconify libraries. Returns icon identifiers (e.g., 'lucide:home') to use in diagrams with the 'iconId' property.",
     inputSchema: z.object({
-      query: z.string().describe("Search query (e.g., 'database', 'user', 'arrow')"),
-      limit: z.number().min(1).max(5).default(5).describe("Maximum results to return"),
+      query: z.string().describe("Search query (e.g., 'database', 'user', 'csv')"),
+      limit: z.number().min(1).max(3).default(1).describe("Maximum results to return"),
     }),
     annotations: { readOnlyHint: true },
   },

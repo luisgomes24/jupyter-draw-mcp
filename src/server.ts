@@ -601,6 +601,9 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
   // ============================================================
   // Tool 2: create_view (Excalidraw SVG)
   // ============================================================
+ 
+ 
+ 
   registerAppTool(server,
     "create_view",
     {

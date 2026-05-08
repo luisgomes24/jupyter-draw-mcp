@@ -63,11 +63,11 @@ High-level intent:
 
 Pipeline structure:
 - Impose a simple left→right AND top→bottom flow that roughly follows standard data science lifecycle
-- Keep a few main boxes so the diagram is readable at a glance.
-- Show important branches:
+- Give high importance to data and how they are used in the steps
+- It must be very clear visually/spatially which data is used where (e.g. which train data is used in which model)
+- Show important branching dynamics:
   - train / validation / test splits,
   - alternative models (baseline vs. model v2),
-  - feedback loops from model evaluation or deployment back to training or data prep.
 
 Labels, annotations, and icons:
 - Use concise labels on boxes:
@@ -76,21 +76,22 @@ Labels, annotations, and icons:
   examples: "AUC=0.84", "N=1M rows", "latency=120ms", "drift p<0.01".
 - Mark special boxes with lightweight secondary notation:
   star, exclamation, or colored border, with labels like "Feature leakage?", "Label noise risk".
-- You may use tiny inline icons (e.g., table, gear, model, cloud, chart) but keep everything inside or attached to rectangular boxes.
+- Use icons (e.g., table, gear, model, cloud, chart) but keep everything inside or attached to rectangular boxes.
 
 Visualization / plot nodes:
-- Include explicit boxes for important outputs and visualizations:
-  examples: "plot accuracy vs epoch", "confusion matrix", "MNIST sample grid".
-- Inside these boxes, sketch a rough representation of the plot instead of a generic icon:
-  e.g., a few up-trending or noisy lines, a bar chart silhouette, a 3x3 grid of handwritten digits, axes with minimal ticks.
+- Inside visualization boxes, sketch a rough representation of the plot instead of a generic icon:
+  example: a bar chart silhouette, a 3x3 grid of handwritten digits, axes with minimal ticks.
+- Include explicit annotations for axis and other components:
+  examples: " accuracy vs epoch", "confusion matrix", "MNIST sample grid".
+
 - When possible, mention the plotted variables in the label or annotation:
-  examples: "acc vs epoch", "loss(train,val)", "drift over time", "pred vs true".
+  examples: "acc vs epoch", "income vs age", "number examples", "pred vs true", etc.
 
 Style:
 - Favor a hand-drawn feel in layout and spacing, but keep the logical flow clear.
 - Avoid long prose, legends, or dense color schemes; 
 - Understanding should come from the arrangement of boxes, arrows, and short labels.
-- Each box MUST HAVE one text label and one Icon (use the search_icons tool)
+- Each box MUST HAVE one text label and one Icon/Visualization (use the search_icons tool or draw it yourself)
 """
 
 # Fast mode: single-shot JSON generation (original behaviour)
@@ -107,7 +108,7 @@ SYSTEM_PROMPT_ITERATIVE = DIAGRAM_STYLE + """
 ## Workflow (CRITICAL — follow this step by step)
 
 You are building the diagram ITERATIVELY with visual feedback. Follow this process:
-
+x
 1. **Icons first**: Call `search_icons` to find appropriate icons for your nodes BEFORE drawing.
 
 2. **Build in 2–3 passes** using `create_view`:
