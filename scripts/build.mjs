@@ -44,7 +44,7 @@ run(
 const promptsSrc = join(root, "src", "prompts");
 const promptsDist = join(root, "dist", "prompts");
 mkdirSync(promptsDist, { recursive: true });
-for (const f of ["excalidraw-spec.md", "interactive.md", "automatic.md"]) {
+for (const f of ["excalidraw-spec.md", "jupyter-spec.md", "interactive.md", "automatic.md"]) {
   cpSync(join(promptsSrc, f), join(promptsDist, f));
 }
 console.log("> Copied prompt files to dist/prompts/");

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod/v4";
 import { searchIcons } from "../core/icons.js";
-import { loadCheatSheet } from "../prompts/index.js";
+import { loadExcalidrawSpec, loadJupyterSpec } from "../prompts/index.js";
 
 /**
  * Registers shared tools available to both interactive and automatic workflows:
@@ -24,7 +24,7 @@ export function registerSharedTools(server: McpServer): void {
     },
     async (): Promise<CallToolResult> => {
       const header = "# Excalidraw Element Format\n\nThanks for calling read_me! Do NOT call it again in this conversation — you will not see anything new. Now use create_view to draw.\n\n";
-      return { content: [{ type: "text", text: header + loadCheatSheet() }] };
+      return { content: [{ type: "text", text: header + loadExcalidrawSpec() + "\n\n---\n\n# Jupyter Notebook Diagramming Rules\n\n" + loadJupyterSpec() }] };
     },
   );
 
