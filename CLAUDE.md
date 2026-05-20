@@ -5,21 +5,34 @@ Standalone MCP server that streams Excalidraw diagrams as SVG with hand-drawn an
 ## Architecture
 
 ```
-server.ts          → 2 tools (read_me, create_view) + resource + cheat sheet
-main.ts            → HTTP (Streamable) + stdio transports
-src/mcp-app.tsx    → ExcalidrawAppCore (widget logic) + ExcalidrawApp (useApp wrapper)
-src/mcp-entry.tsx  → Production entry point: createRoot + ExcalidrawApp
-src/global.css     → Animations (stroke draw-on, fade-in) + auto-resize
-src/dev.tsx        → Dev entry point: mock app + sample elements + control panel
-src/dev-mock.ts    → Mock MCP App with event simulation (sendToolInput, streamElements, etc.)
-index-dev.html     → Dev HTML entry (served by vite dev server)
-vite.config.dev.ts → Dev-only vite config (resolves from node_modules, no esm.sh externals)
+src/
+├── server.ts              → Tools (read_me, read_notebook, create_view) + resource
+├── main.ts                → HTTP (Streamable) + stdio transports
+├── checkpoint-store.ts    → CheckpointStore interface + File/Memory/Redis implementations
+├── prompts/
+│   └── excalidraw-spec.md → Comprehensive element format reference + Jupyter diagramming rules
+├── mcp-app.tsx            → ExcalidrawAppCore (widget logic) + ExcalidrawApp (useApp wrapper)
+├── mcp-entry.tsx          → Production entry point: createRoot + ExcalidrawApp
+├── global.css             → Animations (stroke draw-on, fade-in) + auto-resize
+├── edit-context.ts        → User edit tracking + diff computation
+├── dev.tsx                → Dev entry point: mock app + sample elements + control panel
+├── dev-mock.ts            → Mock MCP App with event simulation
+index-dev.html             → Dev HTML entry (served by vite dev server)
+vite.config.dev.ts         → Dev-only vite config
 ```
 
 ## Tools
 
 ### `read_me` (text tool, no UI)
-Returns a cheat sheet with element format, color palettes, coordinate tips, and examples. The model should call this before `create_view`.
+Returns the comprehensive Excalidraw element format spec from `prompts/excalidraw-spec.md` — customized for Jupyter Notebook workflows. Includes data science box colors, camera sizing, and ML pipeline examples. The model MUST call this before `create_view`.
+
+**Spec delivery strategy (belt-and-suspenders):**
+1. **MCP Server Instructions** — concise version injected into every conversation via `instructions` field in the server constructor
+2. **`read_me` tool** — returns the full comprehensive spec
+3. **`create_view` fallback** — if `read_me` wasn't called, the spec is appended to the `create_view` response
+
+### `read_notebook` (text tool, no UI)
+Reads a Jupyter notebook (.ipynb) file and returns its code and markdown cells as structured text. Used to understand notebook content before diagramming.
 
 ### `create_view` (UI tool)
 Takes `elements` — a JSON string of standard Excalidraw elements. The widget parses partial JSON during streaming and renders via `exportToSvg` + morphdom diffing. No Excalidraw React canvas component — pure SVG rendering.
@@ -93,7 +106,7 @@ npm install
 npm run build
 ```
 
-Build pipeline: `tsc --noEmit` → `vite build` (singlefile HTML) → `tsc -p tsconfig.server.json` → `bun build` (server + index).
+Build pipeline: `tsc --noEmit` → `vite build` (singlefile HTML) → copy `src/prompts/` to `dist/prompts/` → `tsc -p tsconfig.server.json` → `bun build` (server + index).
 
 ## Running
 
@@ -148,9 +161,19 @@ npm run dev:ui
 - **morphdom**: DOM diffing for SVG — preserves existing nodes, only new nodes get animations
 - **exportToSvg**: Excalidraw's SVG export (with fonts inlined by default)
 
-## Cheat Sheet: Progressive Element Ordering
+## Excalidraw Spec (`src/prompts/excalidraw-spec.md`)
 
-The `server.ts` cheat sheet instructs the model to emit elements progressively:
+The comprehensive spec file (~250 lines) includes:
+- Jupyter Notebook Diagram Rules (lane-based, entity-colored boxes, annotations)
+- Box Colors mappings for Data, Process, Model, Evaluation, and Output
+- Element types tailored for sketching plots/visual outputs
+- Camera sizing and updating guidance
+- Notebook Diagram Example (NLP data prep)
+- ML Pipeline Sequence Diagram Example
+- Animation Mode Example (Data Flowing through neural network)
+- Progressive element ordering (critical for streaming)
+
+The model must emit elements progressively:
 - BAD: all rectangles → all texts → all arrows (blank boxes stream, then labels appear late)
 - GOOD: background shapes first, then per node: shape → label → arrows → next node
 - This way each node appears complete with its label during streaming

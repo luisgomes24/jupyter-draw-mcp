@@ -6,3 +6,5 @@ dist/
 bun.lock
 .vscode
 opencode.json
+data/
+.env

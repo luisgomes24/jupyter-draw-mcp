@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from "child_process";
-import { renameSync, rmSync } from "fs";
+import { renameSync, rmSync, cpSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -30,6 +30,9 @@ renameSync(
   join(root, "dist", "mcp-app.html"),
 );
 rmSync(join(root, "dist", "src"), { recursive: true, force: true });
+
+// 3b. Copy prompts to dist
+cpSync(join(root, "src", "prompts"), join(root, "dist", "prompts"), { recursive: true });
 
 // 4. Build server types
 run("tsc -p tsconfig.server.json");
