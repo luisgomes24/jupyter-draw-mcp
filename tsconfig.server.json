@@ -13,5 +13,5 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["src/server.ts"]
+  "include": ["src/server.ts", "src/excalidraw-export.d.ts"]
 }

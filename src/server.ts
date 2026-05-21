@@ -993,7 +993,299 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
   );
 
   // ============================================================
-  // Tool 4: export_to_excalidraw (server-side proxy for CORS)
+  // Tool 4: export_diagram (background export — no UI)
+  // Uses @moona3k/excalidraw-export for proper hand-drawn SVG
+  // rendering (roughjs + Virgil font, no DOM needed).
+  // ============================================================
+
+  /**
+   * Resolve restoreCheckpoint + delete pseudo-elements into a flat array.
+   * Shared logic extracted from create_view.
+   */
+  async function resolveElements(parsed: any[]): Promise<any[]> {
+    const restoreEl = parsed.find((el: any) => el.type === "restoreCheckpoint");
+
+    if (restoreEl?.id) {
+      const base = await store.load(restoreEl.id);
+      if (!base) throw new Error(`Checkpoint "${restoreEl.id}" not found.`);
+
+      const deleteIds = new Set<string>();
+      for (const el of parsed) {
+        if (el.type === "delete") {
+          for (const id of String(el.ids ?? el.id).split(",")) deleteIds.add(id.trim());
+        }
+      }
+
+      const baseFiltered = base.elements.filter((el: any) =>
+        !deleteIds.has(el.id) && !deleteIds.has(el.containerId)
+      );
+      const newEls = parsed.filter((el: any) =>
+        el.type !== "restoreCheckpoint" && el.type !== "delete"
+      );
+      return [...baseFiltered, ...newEls];
+    }
+
+    return parsed.filter((el: any) => el.type !== "delete");
+  }
+
+  /**
+   * Convert the label shorthand used by the LLM into standard Excalidraw format:
+   * - shape.label → separate text element with containerId
+   * - arrow.label → separate text element with containerId
+   * Also strips cameraUpdate pseudo-elements (not real Excalidraw elements).
+   */
+  function convertToExcalidrawFormat(elements: any[]): any[] {
+    const result: any[] = [];
+
+    for (const el of elements) {
+      // Skip pseudo-elements
+      if (el.type === "cameraUpdate" || el.type === "delete" || el.type === "restoreCheckpoint") {
+        continue;
+      }
+
+      const cleanEl = { ...el };
+      const label = cleanEl.label;
+      delete cleanEl.label;
+
+      // Set Excalidraw defaults
+      cleanEl.strokeColor = cleanEl.strokeColor ?? "#1e1e1e";
+      cleanEl.backgroundColor = cleanEl.backgroundColor ?? "transparent";
+      cleanEl.fillStyle = cleanEl.fillStyle ?? "solid";
+      cleanEl.strokeWidth = cleanEl.strokeWidth ?? 2;
+      cleanEl.roughness = cleanEl.roughness ?? 1;
+      cleanEl.opacity = cleanEl.opacity ?? 100;
+      cleanEl.angle = cleanEl.angle ?? 0;
+      cleanEl.seed = cleanEl.seed ?? Math.floor(Math.random() * 2147483647);
+      cleanEl.version = cleanEl.version ?? 1;
+      cleanEl.versionNonce = cleanEl.versionNonce ?? Math.floor(Math.random() * 2147483647);
+      cleanEl.isDeleted = false;
+      cleanEl.groupIds = cleanEl.groupIds ?? [];
+      cleanEl.frameId = cleanEl.frameId ?? null;
+      cleanEl.link = cleanEl.link ?? null;
+      cleanEl.locked = cleanEl.locked ?? false;
+
+      if (label && (el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond")) {
+        const textId = `${el.id}_label`;
+        cleanEl.boundElements = [
+          ...(cleanEl.boundElements ?? []),
+          { type: "text", id: textId },
+        ];
+        result.push(cleanEl);
+
+        // Create bound text element
+        result.push({
+          type: "text",
+          id: textId,
+          x: el.x + (el.width ?? 0) / 2,
+          y: el.y + (el.height ?? 0) / 2,
+          width: el.width ?? 100,
+          height: label.fontSize ?? 20,
+          text: label.text,
+          fontSize: label.fontSize ?? 20,
+          fontFamily: 1, // Virgil
+          textAlign: "center",
+          verticalAlign: "middle",
+          containerId: el.id,
+          originalText: label.text,
+          autoResize: true,
+          strokeColor: cleanEl.strokeColor,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 0,
+          roughness: 0,
+          opacity: cleanEl.opacity,
+          angle: 0,
+          seed: Math.floor(Math.random() * 2147483647),
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 2147483647),
+          isDeleted: false,
+          groupIds: cleanEl.groupIds,
+          frameId: null,
+          link: null,
+          locked: false,
+        });
+      } else if (label && el.type === "arrow") {
+        const textId = `${el.id}_label`;
+        cleanEl.boundElements = [
+          ...(cleanEl.boundElements ?? []),
+          { type: "text", id: textId },
+        ];
+        result.push(cleanEl);
+
+        const midX = el.x + (el.width ?? 0) / 2;
+        const midY = el.y + (el.height ?? 0) / 2;
+        result.push({
+          type: "text",
+          id: textId,
+          x: midX,
+          y: midY - 10,
+          width: 100,
+          height: label.fontSize ?? 14,
+          text: label.text,
+          fontSize: label.fontSize ?? 14,
+          fontFamily: 1,
+          textAlign: "center",
+          verticalAlign: "middle",
+          containerId: el.id,
+          originalText: label.text,
+          autoResize: true,
+          strokeColor: "#1e1e1e",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 0,
+          roughness: 0,
+          opacity: cleanEl.opacity,
+          angle: 0,
+          seed: Math.floor(Math.random() * 2147483647),
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 2147483647),
+          isDeleted: false,
+          groupIds: [],
+          frameId: null,
+          link: null,
+          locked: false,
+        });
+      } else {
+        result.push(cleanEl);
+      }
+    }
+
+    return result;
+  }
+
+  server.registerTool(
+    "export_diagram",
+    {
+      description: `Exports a diagram as .excalidraw, .svg, and optionally .png files (no live UI preview).
+Use this when the user wants files saved to disk instead of an interactive streaming preview.
+The SVG output has proper hand-drawn Excalidraw styling (Virgil font, roughjs effects).
+Takes the same elements JSON array as create_view. You MUST call read_me first.`,
+      inputSchema: z.object({
+        elements: z.string().describe(
+          "JSON array string of Excalidraw elements (same format as create_view)."
+        ),
+        outputDir: z.string().describe(
+          "Directory path to save the output files. Will be created if it doesn't exist."
+        ),
+        filename: z.string().optional().describe(
+          "Base filename (without extension). Defaults to 'diagram'. Produces <filename>.excalidraw, <filename>.svg, and optionally <filename>.png."
+        ),
+        png: z.boolean().optional().describe(
+          "If true, also export a PNG rasterization (2x scale). Defaults to false."
+        ),
+        scale: z.number().optional().describe(
+          "PNG scale factor (e.g. 2 for 2x resolution). Only applies when png=true. Defaults to 2."
+        ),
+      }),
+    },
+    async ({ elements, outputDir, filename, png, scale }): Promise<CallToolResult> => {
+      if (elements.length > MAX_INPUT_BYTES) {
+        return {
+          content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit.` }],
+          isError: true,
+        };
+      }
+
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(elements);
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Invalid JSON in elements: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+
+      try {
+        // 1. Resolve checkpoints and deletes
+        const resolved = await resolveElements(parsed);
+
+        // 2. Build .excalidraw file (standard format with bound text elements)
+        const excalidrawElements = convertToExcalidrawFormat(resolved);
+        const excalidrawFile = {
+          type: "excalidraw",
+          version: 2,
+          source: "https://github.com/jupyter-draw-mcp",
+          elements: excalidrawElements,
+          appState: {
+            viewBackgroundColor: "#ffffff",
+            gridSize: null,
+          },
+          files: {},
+        };
+
+        // 3. Save .excalidraw file
+        const baseName = filename ?? "diagram";
+        const resolvedDir = path.resolve(outputDir);
+        await fs.mkdir(resolvedDir, { recursive: true });
+
+        const excalidrawPath = path.join(resolvedDir, `${baseName}.excalidraw`);
+        await fs.writeFile(excalidrawPath, JSON.stringify(excalidrawFile, null, 2), "utf-8");
+
+        // 4. Render hand-drawn SVG using @moona3k/excalidraw-export
+        const { renderToSvg } = await import("@moona3k/excalidraw-export");
+        const svgContent = renderToSvg(excalidrawFile);
+        const svgPath = path.join(resolvedDir, `${baseName}.svg`);
+        await fs.writeFile(svgPath, svgContent, "utf-8");
+
+        // 5. Optionally render PNG via resvg
+        let pngPath: string | null = null;
+        if (png) {
+          try {
+            const { Resvg } = await import("@resvg/resvg-js");
+            const resvg = new Resvg(svgContent, {
+              fitTo: { mode: "zoom" as const, value: scale ?? 2 },
+              font: { loadSystemFonts: true },
+            });
+            const rendered = resvg.render();
+            const pngBuffer = rendered.asPng();
+            pngPath = path.join(resolvedDir, `${baseName}.png`);
+            await fs.writeFile(pngPath, pngBuffer);
+          } catch (pngErr) {
+            // PNG rendering is optional — resvg may not be available on all platforms
+            pngPath = null;
+          }
+        }
+
+        // 6. Also save as checkpoint for potential follow-up edits
+        const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
+        await store.save(checkpointId, { elements: resolved });
+
+        const specReminder = readMeCalled
+          ? ""
+          : `\n\n⚠ You did not call read_me before exporting. Call read_me first for correct diagrams.`;
+
+        const fileList = [
+          `- Excalidraw: ${excalidrawPath}`,
+          `- SVG: ${svgPath}`,
+          ...(pngPath ? [`- PNG: ${pngPath}`] : []),
+        ].join("\n");
+
+        return {
+          content: [{
+            type: "text",
+            text: `Diagram exported successfully!
+
+Files saved:
+${fileList}
+
+Checkpoint id: "${checkpointId}" (use with restoreCheckpoint to edit later).
+
+The .excalidraw file can be opened at excalidraw.com or in the Excalidraw desktop app for editing.
+The .svg has full hand-drawn Excalidraw styling (Virgil font, rough sketched lines).${pngPath ? "\nThe .png is a 2x rasterized version suitable for embedding." : ""}${specReminder}`,
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `Export failed: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // ============================================================
+  // Tool 5: export_to_excalidraw (server-side proxy for CORS)
   // Called by widget via app.callServerTool(), not by the model.
   // ============================================================
   registerAppTool(server,
