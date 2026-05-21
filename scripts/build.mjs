@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from "child_process";
-import { renameSync, rmSync, cpSync, mkdirSync } from "fs";
+import { renameSync, rmSync, cpSync, mkdirSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -31,8 +31,11 @@ renameSync(
 );
 rmSync(join(root, "dist", "src"), { recursive: true, force: true });
 
-// 3b. Copy prompts to dist
-cpSync(join(root, "src", "prompts"), join(root, "dist", "prompts"), { recursive: true });
+// 3b. Copy prompts to dist if they exist
+const promptsSrc = join(root, "src", "prompts");
+if (existsSync(promptsSrc)) {
+  cpSync(promptsSrc, join(root, "dist", "prompts"), { recursive: true });
+}
 
 // 4. Build server types
 run("tsc -p tsconfig.server.json");

@@ -20,43 +20,9 @@ const DIST_DIR = import.meta.filename.endsWith(".ts")
 // ============================================================
 // RECALL: shared knowledge for the agent
 // ============================================================
-const RECALL_CHEAT_SHEET = `# Excalidraw Element Format
+const EXCALIDRAW_SPECS = `# Excalidraw Element Format
 
 Thanks for calling read_me! Do NOT call it again in this conversation — you will not see anything new. Now use create_view to draw.
-
-## Color Palette (use consistently across all tools)
-
-### Primary Colors
-| Name | Hex | Use |
-|------|-----|-----|
-| Blue | \`#4a9eed\` | Primary actions, links, data series 1 |
-| Amber | \`#f59e0b\` | Warnings, highlights, data series 2 |
-| Green | \`#22c55e\` | Success, positive, data series 3 |
-| Red | \`#ef4444\` | Errors, negative, data series 4 |
-| Purple | \`#8b5cf6\` | Accents, special items, data series 5 |
-| Pink | \`#ec4899\` | Decorative, data series 6 |
-| Cyan | \`#06b6d4\` | Info, secondary, data series 7 |
-| Lime | \`#84cc16\` | Extra, data series 8 |
-
-### Excalidraw Fills (pastel, for shape backgrounds)
-| Color | Hex | Good For |
-|-------|-----|----------|
-| Light Blue | \`#a5d8ff\` | Input, sources, primary nodes |
-| Light Green | \`#b2f2bb\` | Success, output, completed |
-| Light Orange | \`#ffd8a8\` | Warning, pending, external |
-| Light Purple | \`#d0bfff\` | Processing, middleware, special |
-| Light Red | \`#ffc9c9\` | Error, critical, alerts |
-| Light Yellow | \`#fff3bf\` | Notes, decisions, planning |
-| Light Teal | \`#c3fae8\` | Storage, data, memory |
-| Light Pink | \`#eebefa\` | Analytics, metrics |
-
-### Background Zones (use with opacity: 30 for layered diagrams)
-| Color | Hex | Good For |
-|-------|-----|----------|
-| Blue zone | \`#dbe4ff\` | UI / frontend layer |
-| Purple zone | \`#e5dbff\` | Logic / agent layer |
-| Green zone | \`#d3f9d8\` | Data / tool layer |
-
 ---
 
 ## Excalidraw Elements
@@ -70,55 +36,42 @@ Canvas background is white.
 
 ### Element Types
 
-**Rectangle**: \`{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 100 }\`
+**Rectangle** (PRIMARY shape for diagram nodes):
+\`{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 100 }\`
 - \`roundness: { type: 3 }\` for rounded corners
 - \`backgroundColor: "#a5d8ff"\`, \`fillStyle: "solid"\` for filled
+- **Rectangles are the only allowed shape for diagram nodes.** Ellipses and diamonds are reserved for in-box sketches (e.g., drawing a scatter plot, chart axis dots, etc.)
 
-**Ellipse**: \`{ "type": "ellipse", "id": "e1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
-
-**Diamond**: \`{ "type": "diamond", "id": "d1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
-
-**Labeled shape (PREFERRED)**: Add \`label\` to any shape for auto-centered text. No separate text element needed.
+**Labeled rectangle (PREFERRED for nodes)**:
 \`{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 80, "label": { "text": "Hello", "fontSize": 20 } }\`
-- Works on rectangle, ellipse, diamond
-- Text auto-centers and container auto-resizes to fit
+- Text auto-centers; container auto-resizes to fit
 - Saves tokens vs separate text elements
+
+**Ellipse** (in-box sketches only — e.g., data points in a scatter plot, pie segments):
+\`{ "type": "ellipse", "id": "e1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
+- Do NOT use as a diagram node
+
+**Diamond** (in-box sketches only — same as ellipse):
+\`{ "type": "diamond", "id": "d1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
+- Do NOT use as a diagram node
 
 **Labeled arrow**: \`"label": { "text": "connects" }\` on an arrow element.
 
-**Standalone text** (titles, annotations only):
+**Standalone text** (titles, lane headers, annotations only):
 \`{ "type": "text", "id": "t1", "x": 150, "y": 138, "text": "Hello", "fontSize": 20 }\`
 - x is the LEFT edge of the text. To center text at position cx: set x = cx - estimatedWidth/2
 - estimatedWidth ≈ text.length × fontSize × 0.5
 - Do NOT rely on textAlign or width for positioning — they only affect multi-line wrapping
 
-**Arrow**: \`{ "type": "arrow", "id": "a1", "x": 300, "y": 150, "width": 200, "height": 0, "points": [[0,0],[200,0]], "endArrowhead": "arrow" }\`
+**Arrow** (connections between nodes AND in-box sketch elements such as axes):
+\`{ "type": "arrow", "id": "a1", "x": 300, "y": 150, "width": 200, "height": 0, "points": [[0,0],[200,0]], "endArrowhead": "arrow" }\`
 - points: [dx, dy] offsets from element x,y
 - endArrowhead: null | "arrow" | "bar" | "dot" | "triangle"
+- For sketch axes inside a box, set \`endArrowhead: "arrow"\` and \`strokeWidth: 1\`
 
 ### Arrow Bindings
 Arrow: \`"startBinding": { "elementId": "r1", "fixedPoint": [1, 0.5] }\`
 fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
-
-**cameraUpdate** (pseudo-element — controls the viewport, not drawn):
-\`{ "type": "cameraUpdate", "width": 800, "height": 600, "x": 0, "y": 0 }\`
-- x, y: top-left corner of the visible area (scene coordinates)
-- width, height: size of the visible area — MUST be 4:3 ratio (400×300, 600×450, 800×600, 1200×900, 1600×1200)
-- Animates smoothly between positions — use multiple cameraUpdates to guide attention as you draw
-- No \`id\` needed — this is not a drawn element
-
-**delete** (pseudo-element — removes elements by id):
-\`{ "type": "delete", "ids": "b2,a1,t3" }\`
-- Comma-separated list of element ids to remove
-- Also removes bound text elements (matching \`containerId\`)
-- Place AFTER the elements you want to remove
-- Never reuse a deleted id — always assign new ids to replacements
-
-### Drawing Order (CRITICAL for streaming)
-- Array order = z-order (first = back, last = front)
-- **Emit progressively**: background → shape → its label → its arrows → next shape
-- BAD: all rectangles → all texts → all arrows
-- GOOD: bg_shape → shape1 → text1 → arrow1 → shape2 → text2 → ...
 
 ### Example: Two connected labeled boxes
 \`\`\`json
@@ -129,6 +82,27 @@ fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
   { "type": "arrow", "id": "a1", "x": 300, "y": 150, "width": 150, "height": 0, "points": [[0,0],[150,0]], "endArrowhead": "arrow", "startBinding": { "elementId": "b1", "fixedPoint": [1, 0.5] }, "endBinding": { "elementId": "b2", "fixedPoint": [0, 0.5] } }
 ]
 \`\`\`
+
+## General Excalidraw Tips
+- Do NOT call read_me again — you already have everything you need
+- Use the color palette consistently
+- **Text contrast is CRITICAL** — never use light gray (#b0b0b0, #999) on white backgrounds. Minimum text color on white: #757575. For colored text on light fills, use dark variants (#15803d not #22c55e, #2563eb not #4a9eed). White text needs dark backgrounds (#9a5030 not #c4795b)
+- Do NOT use emoji in text — they don't render in Excalidraw's font
+- **Rectangles only for diagram nodes** — Ellipses, diamonds, and similar shapes are for in-box sketches (charts, icons, decorative art) only
+`;
+
+const LIVE_UPDATES_PROMPT = `# Live Updates & Camera Reference
+
+This section describes how to use camera updates, drawing progression, deletion animations, and checkpoint restoration to show a diagram being constructed live to the user.
+
+## Camera Updates
+
+**cameraUpdate** (pseudo-element — controls the viewport, not drawn):
+\`{ "type": "cameraUpdate", "width": 800, "height": 600, "x": 0, "y": 0 }\`
+- x, y: top-left corner of the visible area (scene coordinates)
+- width, height: size of the visible area — MUST be 4:3 ratio (400×300, 600×450, 800×600, 1200×900, 1600×1200)
+- Animates smoothly between positions — use multiple cameraUpdates to guide attention as you draw
+- No \`id\` needed — this is not a drawn element
 
 ### Camera & Sizing (CRITICAL for readability)
 
@@ -145,12 +119,12 @@ ALWAYS use one of these exact sizes. Non-4:3 viewports cause distortion.
 
 **Font size rules:**
 - Minimum fontSize: **16** for body text, labels, descriptions
-- Minimum fontSize: **20** for titles and headings
+- Minimum fontSize: **20** for titles, headings, and lane headers
 - Minimum fontSize: **14** for secondary annotations only (sparingly)
 - NEVER use fontSize below 14 — it becomes unreadable at display scale
 
 **Element sizing rules:**
-- Minimum shape size: 120×60 for labeled rectangles/ellipses
+- Minimum shape size: 120×60 for labeled rectangles
 - Leave 20-30px gaps between elements minimum
 - Prefer fewer, larger elements over many tiny ones
 
@@ -169,67 +143,88 @@ Examples:
 
 Tip: For large diagrams, emit a cameraUpdate to focus on each section as you draw it.
 
+---
+
+## Live Diagram Building
+
+### Drawing Order (CRITICAL for streaming)
+- Array order = z-order (first = back, last = front)
+- **Emit progressively**: background → shape → its label → its arrows → next shape
+- BAD: all rectangles → all texts → all arrows
+- GOOD: bg_shape → shape1 → text1 → arrow1 → shape2 → text2 → ...
+
+### Deleting Elements
+
+Remove elements by id using the \`delete\` pseudo-element:
+
+\`{"type":"delete","ids":"b2,a1,t3"}\`
+
+Works in two modes:
+- **With restoreCheckpoint**: restore a saved state, then surgically remove specific elements before adding new ones
+- **Inline (animation mode)**: draw elements, then delete and replace them later in the same array to create transformation effects
+
+Place delete entries AFTER the elements you want to remove. The final render filters them out.
+
+**IMPORTANT**: Every element id must be unique. Never reuse an id after deleting it — always assign a new id to replacement elements.
+
+### Checkpoints (restoring previous state)
+
+Every create_view call returns a \`checkpointId\` in its response. To continue from a previous diagram state, start your elements array with a restoreCheckpoint element:
+
+\`[{"type":"restoreCheckpoint","id":"<checkpointId>"}, ...additional new elements...]\`
+
+The saved state (including any user edits made in fullscreen) is loaded from the client, and your new elements are appended on top. This saves tokens — you don't need to re-send the entire diagram.
+
+### Live Updates Tip
+- cameraUpdate is MAGICAL and users love it! please use it a lot to guide the user's attention as you draw. It makes a huge difference in readability and engagement.
+
+---
+
 ## Diagram Example
 
-Example prompt: "Explain how photosynthesis works"
+Example prompt: "Show a simple ML training pipeline"
 
-Uses 2 camera positions: start zoomed in (M) for title, then zoom out (L) to reveal the full diagram. Sun art drawn last as a finishing touch.
+Uses 2 camera positions: start zoomed in (M) for title, then zoom out (L) to reveal the full pipeline.
 
-- **Camera 1** (400x300): Draw the title "Photosynthesis" and formula subtitle zoomed in
-- **Camera 2** (800x600): Zoom out — draw the leaf zone, process flow (Light Reactions → Calvin Cycle), inputs (Sunlight, Water, CO2), outputs (O2, Glucose), and finally a cute 8-ray sun
+- **Camera 1** (400x300): Draw the title and subtitle
+- **Camera 2** (800x600): Zoom out — draw the pipeline: raw CSV → preprocessing → train/test split → model training → evaluation, with metric annotation
 
 \`\`\`json
 [
-  {"type":"cameraUpdate","width":400,"height":300,"x":200,"y":-20},
-  {"type":"text","id":"ti","x":280,"y":10,"text":"Photosynthesis","fontSize":28,"strokeColor":"#1e1e1e"},
-  {"type":"text","id":"fo","x":245,"y":48,"text":"6CO2 + 6H2O --> C6H12O6 + 6O2","fontSize":16,"strokeColor":"#757575"},
+  {"type":"cameraUpdate","width":400,"height":300,"x":150,"y":-20},
+  {"type":"text","id":"ti","x":195,"y":10,"text":"ML Training Pipeline","fontSize":28,"strokeColor":"#1e1e1e"},
+  {"type":"text","id":"su","x":210,"y":48,"text":"CSV → model → accuracy score","fontSize":16,"strokeColor":"#757575"},
   {"type":"cameraUpdate","width":800,"height":600,"x":0,"y":-20},
-  {"type":"rectangle","id":"lf","x":150,"y":90,"width":520,"height":380,"backgroundColor":"#d3f9d8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","strokeWidth":1,"opacity":35},
-  {"type":"text","id":"lfl","x":170,"y":96,"text":"Inside the Leaf","fontSize":16,"strokeColor":"#15803d"},
-  {"type":"rectangle","id":"lr","x":190,"y":190,"width":160,"height":70,"backgroundColor":"#fff3bf","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#f59e0b","label":{"text":"Light Reactions","fontSize":16}},
-  {"type":"arrow","id":"a1","x":350,"y":225,"width":120,"height":0,"points":[[0,0],[120,0]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow","label":{"text":"ATP","fontSize":14}},
-  {"type":"rectangle","id":"cc","x":470,"y":190,"width":160,"height":70,"backgroundColor":"#d0bfff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#8b5cf6","label":{"text":"Calvin Cycle","fontSize":16}},
-  {"type":"rectangle","id":"sl","x":10,"y":200,"width":120,"height":50,"backgroundColor":"#fff3bf","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#f59e0b","label":{"text":"Sunlight","fontSize":16}},
-  {"type":"arrow","id":"a2","x":130,"y":225,"width":60,"height":0,"points":[[0,0],[60,0]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":"arrow"},
-  {"type":"rectangle","id":"wa","x":200,"y":360,"width":140,"height":50,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","label":{"text":"Water (H2O)","fontSize":16}},
-  {"type":"arrow","id":"a3","x":270,"y":360,"width":0,"height":-100,"points":[[0,0],[0,-100]],"strokeColor":"#4a9eed","strokeWidth":2,"endArrowhead":"arrow"},
-  {"type":"rectangle","id":"co","x":480,"y":360,"width":130,"height":50,"backgroundColor":"#ffd8a8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#f59e0b","label":{"text":"CO2","fontSize":16}},
-  {"type":"arrow","id":"a4","x":545,"y":360,"width":0,"height":-100,"points":[[0,0],[0,-100]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":"arrow"},
-  {"type":"rectangle","id":"ox","x":540,"y":100,"width":100,"height":40,"backgroundColor":"#ffc9c9","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#ef4444","label":{"text":"O2","fontSize":16}},
-  {"type":"arrow","id":"a5","x":310,"y":190,"width":230,"height":-50,"points":[[0,0],[230,-50]],"strokeColor":"#ef4444","strokeWidth":2,"endArrowhead":"arrow"},
-  {"type":"rectangle","id":"gl","x":690,"y":195,"width":120,"height":60,"backgroundColor":"#c3fae8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","label":{"text":"Glucose","fontSize":18}},
-  {"type":"arrow","id":"a6","x":630,"y":225,"width":60,"height":0,"points":[[0,0],[60,0]],"strokeColor":"#22c55e","strokeWidth":2,"endArrowhead":"arrow"},
-  {"type":"ellipse","id":"sun","x":30,"y":110,"width":50,"height":50,"backgroundColor":"#fff3bf","fillStyle":"solid","strokeColor":"#f59e0b","strokeWidth":2},
-  {"type":"arrow","id":"r1","x":55,"y":108,"width":0,"height":-14,"points":[[0,0],[0,-14]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r2","x":55,"y":162,"width":0,"height":14,"points":[[0,0],[0,14]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r3","x":28,"y":135,"width":-14,"height":0,"points":[[0,0],[-14,0]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r4","x":82,"y":135,"width":14,"height":0,"points":[[0,0],[14,0]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r5","x":73,"y":117,"width":10,"height":-10,"points":[[0,0],[10,-10]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r6","x":37,"y":117,"width":-10,"height":-10,"points":[[0,0],[-10,-10]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r7","x":73,"y":153,"width":10,"height":10,"points":[[0,0],[10,10]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null},
-  {"type":"arrow","id":"r8","x":37,"y":153,"width":-10,"height":10,"points":[[0,0],[-10,10]],"strokeColor":"#f59e0b","strokeWidth":2,"endArrowhead":null,"startArrowhead":null}
+  {"type":"rectangle","id":"csv","x":30,"y":200,"width":120,"height":60,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","label":{"text":"train.csv","fontSize":16}},
+  {"type":"arrow","id":"a1","x":150,"y":230,"width":60,"height":0,"points":[[0,0],[60,0]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow","label":{"text":"load","fontSize":14}},
+  {"type":"rectangle","id":"prep","x":210,"y":190,"width":150,"height":80,"backgroundColor":"#e9ecef","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#868e96","label":{"text":"Preprocessing\\ndrop nulls, scale","fontSize":15}},
+  {"type":"arrow","id":"a2","x":360,"y":230,"width":60,"height":0,"points":[[0,0],[60,0]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow","label":{"text":"split","fontSize":14}},
+  {"type":"rectangle","id":"xtrain","x":420,"y":160,"width":130,"height":55,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","label":{"text":"X_train","fontSize":16}},
+  {"type":"text","id":"ann1","x":428,"y":218,"text":"80%","fontSize":14,"strokeColor":"#4a9eed"},
+  {"type":"rectangle","id":"xtest","x":420,"y":280,"width":130,"height":55,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","label":{"text":"X_test","fontSize":16}},
+  {"type":"text","id":"ann2","x":428,"y":338,"text":"20%","fontSize":14,"strokeColor":"#4a9eed"},
+  {"type":"arrow","id":"a3","x":550,"y":187,"width":70,"height":0,"points":[[0,0],[70,0]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow","label":{"text":"train","fontSize":14}},
+  {"type":"rectangle","id":"clf","x":620,"y":160,"width":150,"height":55,"backgroundColor":"#ffc9c9","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#ef4444","label":{"text":"RandomForest()\\nn_estimators=100","fontSize":14}},
+  {"type":"arrow","id":"a4","x":550,"y":307,"width":120,"height":-90,"points":[[0,0],[120,-90]],"strokeColor":"#1e1e1e","strokeWidth":2,"endArrowhead":"arrow","label":{"text":"predict","fontSize":14}},
+  {"type":"rectangle","id":"eval","x":620,"y":290,"width":150,"height":55,"backgroundColor":"#b2f2bb","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","label":{"text":"accuracy_score()","fontSize":16}},
+  {"type":"text","id":"metric","x":628,"y":348,"text":"acc = 0.91","fontSize":14,"strokeColor":"#15803d"},
+  {"type":"cameraUpdate","width":800,"height":600,"x":0,"y":-20}
 ]
 \`\`\`
-
-Common mistakes to avoid:
-- **Camera size must match content with padding** — if your content is 500px tall, use 800x600 camera, not 500px. No padding = truncated edges
-- **Center titles relative to the diagram below** — estimate the diagram's total width and center the title text over it, not over the canvas
-- **Arrow labels need space** — long labels like "ATP + NADPH" overflow short arrows. Keep labels short or make arrows wider
-- **Elements overlap when y-coordinates are close** — always check that text, boxes, and labels don't stack on top of each other (e.g., an output box overlapping a zone label)
-- **Draw art/illustrations LAST** — cute decorations (sun, stars, icons) should appear as the final drawing step so they don't distract from the main content being built
 
 ## Sequence flow Diagram Example
 
 Example prompt: "show a sequence diagram explaining MCP Apps"
 
-This demonstrates a UML-style sequence diagram with 4 actors (User, Agent, App iframe, MCP Server), dashed lifelines, and labeled arrows showing the full MCP Apps request/response flow. Camera pans progressively across the diagram:
+This demonstrates a UML-style sequence diagram with 4 actors (User, Agent, App iframe, MCP Server), dashed lifelines, and labeled arrows showing the full MCP Apps request/response flow. Camera pans progressively across the diagram.
+All actor header boxes are rectangles. Lifelines are arrows with \`endArrowhead: null\`.
 
 - **Camera 1** (600x450): Title "MCP Apps — Sequence Flow"
-- **Cameras 2–5** (400x300 each): Zoom into each actor column right-to-left — draw header box + dashed lifeline for Server, App, Agent, User. Right-to-left so the camera snakes smoothly: pan left across actors, then pan right following the first message arrows
-- **Camera 6** (400x300): Zoom into User — draw stick figure (head + body)
-- **Camera 7** (600x450): Zoom out — draw first message arrows: user prompt → agent, agent tools/call → server, tool result back, result forwarded to app iframe
-- **Camera 8** (600x450): Pan down — draw user interaction with app, app requesting tools/call back to agent
-- **Camera 9** (600x450): Pan further down — agent forwards to server, fresh data flows back through the chain, context update from app to agent
+- **Cameras 2–5** (400x300 each): Zoom into each actor column right-to-left — draw header rectangle + dashed lifeline arrow for Server, App, Agent, User
+- **Camera 6** (400x300): Zoom into User — draw stick figure (head as ellipse + body as rectangle, in-box sketch only)
+- **Camera 7** (600x450): Zoom out — draw first message arrows
+- **Camera 8** (600x450): Pan down — draw user interaction
+- **Camera 9** (600x450): Pan further down — agent forwards to server, fresh data flows back
 - **Camera 10** (800x600): Final zoom-out showing the complete sequence
 
 \`\`\`json
@@ -282,304 +277,8 @@ This demonstrates a UML-style sequence diagram with 4 actors (User, Agent, App i
   {"type":"cameraUpdate","width":800,"height":600,"x":-5,"y":2}
 ]
 \`\`\`
-
-## Checkpoints (restoring previous state)
-
-Every create_view call returns a \`checkpointId\` in its response. To continue from a previous diagram state, start your elements array with a restoreCheckpoint element:
-
-\`[{"type":"restoreCheckpoint","id":"<checkpointId>"}, ...additional new elements...]\`
-
-The saved state (including any user edits made in fullscreen) is loaded from the client, and your new elements are appended on top. This saves tokens — you don't need to re-send the entire diagram.
-
-## Deleting Elements
-
-Remove elements by id using the \`delete\` pseudo-element:
-
-\`{"type":"delete","ids":"b2,a1,t3"}\`
-
-Works in two modes:
-- **With restoreCheckpoint**: restore a saved state, then surgically remove specific elements before adding new ones
-- **Inline (animation mode)**: draw elements, then delete and replace them later in the same array to create transformation effects
-
-Place delete entries AFTER the elements you want to remove. The final render filters them out.
-
-**IMPORTANT**: Every element id must be unique. Never reuse an id after deleting it — always assign a new id to replacement elements.
-
-## Animation Mode — Transform in Place
-
-Instead of building left-to-right and panning away, you can animate by DELETING elements and replacing them at the same position. Combined with slight camera moves, this creates smooth visual transformations during streaming.
-
-Pattern:
-1. Draw initial elements
-2. cameraUpdate (shift/zoom slightly)
-3. \`{"type":"delete","ids":"old1,old2"}\`
-4. Draw replacements at same coordinates (different color/content)
-5. Repeat
-
-Example prompt: "Pixel snake eats apple"
-
-Snake moves right by adding a head segment and deleting the tail. On eating the apple, tail is NOT deleted (snake grows). Camera nudges between frames add subtle motion.
-
-\`\`\`json
-[
-  {"type":"cameraUpdate","width":400,"height":300,"x":0,"y":0},
-  {"type":"ellipse","id":"ap","x":260,"y":78,"width":20,"height":20,"backgroundColor":"#ef4444","fillStyle":"solid","strokeColor":"#ef4444"},
-  {"type":"rectangle","id":"s0","x":60,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"rectangle","id":"s1","x":88,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"rectangle","id":"s2","x":116,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"rectangle","id":"s3","x":144,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"cameraUpdate","width":400,"height":300,"x":1,"y":0},
-  {"type":"rectangle","id":"s4","x":172,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s0"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":0,"y":1},
-  {"type":"rectangle","id":"s5","x":200,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s1"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":1,"y":0},
-  {"type":"rectangle","id":"s6","x":228,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s2"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":0,"y":0},
-  {"type":"rectangle","id":"s7","x":256,"y":130,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s3"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":1,"y":1},
-  {"type":"rectangle","id":"s8","x":256,"y":102,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s4"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":0,"y":0},
-  {"type":"rectangle","id":"s9","x":256,"y":74,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"ap"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":1,"y":0},
-  {"type":"rectangle","id":"s10","x":256,"y":46,"width":28,"height":28,"backgroundColor":"#22c55e","fillStyle":"solid","strokeColor":"#15803d","strokeWidth":1},
-  {"type":"delete","ids":"s5"}
-]
-\`\`\`
-
-Key techniques:
-- Add head + delete tail each frame = snake movement illusion
-- On eat: delete apple instead of tail = snake grows by one
-- Post-eat frame resumes normal add-head/delete-tail, proving the snake is now longer
-- Camera nudges (0,0 → 1,0 → 0,1 → ...) add subtle motion between frames
-- Always use NEW ids for added segments (s0→s4→s5→...); never reuse deleted ids
-
-## Dark Mode
-
-If the user asks for a dark theme/mode diagram, use a massive dark background rectangle as the FIRST element (before cameraUpdate). Make it 10x the camera size so it covers the entire viewport even when panning:
-
-\`{"type":"rectangle","id":"darkbg","x":-4000,"y":-3000,"width":10000,"height":7500,"backgroundColor":"#1e1e2e","fillStyle":"solid","strokeColor":"transparent","strokeWidth":0}\`
-
-Then use these colors on the dark background:
-
-**Text colors (on dark):**
-| Color | Hex | Use |
-|-------|-----|-----|
-| White | \`#e5e5e5\` | Primary text, titles |
-| Muted | \`#a0a0a0\` | Secondary text, annotations |
-| NEVER | \`#555\` or darker | Invisible on dark bg! |
-
-**Shape fills (on dark):**
-| Color | Hex | Good For |
-|-------|-----|----------|
-| Dark Blue | \`#1e3a5f\` | Primary nodes |
-| Dark Green | \`#1a4d2e\` | Success, output |
-| Dark Purple | \`#2d1b69\` | Processing, special |
-| Dark Orange | \`#5c3d1a\` | Warning, pending |
-| Dark Red | \`#5c1a1a\` | Error, critical |
-| Dark Teal | \`#1a4d4d\` | Storage, data |
-
-**Stroke/arrow colors (on dark):**
-Use the Primary Colors from above — they're bright enough on dark backgrounds. For shape borders, use slightly lighter variants or \`#555555\` for subtle outlines.
-
-## Tips
-- Do NOT call read_me again — you already have everything you need
-- Use the color palette consistently
-- **Text contrast is CRITICAL** — never use light gray (#b0b0b0, #999) on white backgrounds. Minimum text color on white: #757575. For colored text on light fills, use dark variants (#15803d not #22c55e, #2563eb not #4a9eed). White text needs dark backgrounds (#9a5030 not #c4795b)
-- Do NOT use emoji in text — they don't render in Excalidraw's font
-- cameraUpdate is MAGICAL and users love it! please use it a lot to guide the user's attention as you draw. It makes a huge difference in readability and engagement.
 `;
 
-
-
-// ============================================================
-// Load spec from external file (src/prompts/ in dev, dist/prompts/ in prod)
-// ============================================================
-const EXCALIDRAW_SPEC = `# Jupyter Notebook Diagramming Format
-
-You are specialized in diagramming Jupyter notebooks (data science / ML workflows).
-You use the Excalidraw element format to create these diagrams.
-
-## Jupyter Notebook Diagram Rules
-
-When diagramming a Jupyter notebook, follow these rules.
-
-### BOX COLORS (entity type)
-
-Choose the color that describes what the box IS, regardless of where it sits:
-
-| Color     | Fill Hex  | Stroke Hex | Entity Type  | Description                                                                                            | Examples                                                       |
-| --------- | --------- | ---------- | ------------ | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| **BLUE**  | \`#a5d8ff\` | \`#4a9eed\`  | Data entity  | A named data artifact: dataset, dataframe, array, file, split, embedding.                              | \`df_raw\`, \`X_train\`, \`train.csv\`                               |
-| **GRAY**  | \`#e9ecef\` | \`#868e96\`  | Process step | An operation applied to data or a model: function call, transformation, cleaning step, or computation. | \`StandardScaler()\`, \`Split Train/Test\`, \`remove_duplicates()\`  |
-| **RED**   | \`#ffc9c9\` | \`#ef4444\`  | Model        | A model definition, training call, or HP search.                                                       | \`LogisticRegression()\`, \`CNN()\`, \`clf.fit()\`, \`GridSearchCV()\` |
-| **GREEN** | \`#b2f2bb\` | \`#22c55e\`  | Evaluation   | A step that measures model or data quality against a reference.                                        | \`accuracy_score()\`, \`confusion_matrix()\`, \`cross_val_score()\`  |
-| **WHITE** | \`#ffffff\` | \`#868e96\`  | Output       | Any human-readable result: plot, printed summary, or exported report. Can appear in any lane.          | \`plt.show()\`, \`print(df.head())\`, \`sns.heatmap()\`              |
-
-### LANES (workflow stage)
-
-Lanes are spatial columns that group boxes by pipeline stage — not by box type.
-Place a box in the lane that describes the stage of the notebook where it appears.
-
-\`\`\`
-┌───────────┬────────────┬────────────┬────────────┬────────────┐
-│ ARTIFACTS │ PROCESSING │ MODELLING  │ EVALUATION │   REPORT   │
-└───────────┴────────────┴────────────┴────────────┴────────────┘
-\`\`\`
-
-| Lane           | Description                                                                                                                                              | Typical Box Colors |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| **ARTIFACTS**  | External data entities before notebook runs or written back out. Inputs: \`train.csv\`, \`test.csv\`, API response. Outputs: \`predictions.csv\`, \`model.pkl\`. | BLUE               |
-| **PROCESSING** | Data preparation: loading, cleaning, transforming, splitting.                                                                                            | BLUE, GRAY, WHITE  |
-| **MODELLING**  | Models defined, trained, or tuned.                                                                                                                       | RED, GREEN         |
-| **EVALUATION** | Trained model tested on held-out data and measured.                                                                                                      | GREEN, BLUE, WHITE |
-| **REPORT**     | Final human-readable outputs: polished visualizations and summaries.                                                                                     | WHITE, GREEN, BLUE |
-
-### ARROW DIRECTIONS & FLOW
-
-- Time flows primarily **left-to-right and top-to-bottom** within each lane.
-- **Back-arrows** (right-to-left, any lane → ARTIFACTS) are allowed for lane switches (e.g. saving a model to disk). Draw as curved/angled lines.
-- NEVER draw two arrows on top of each other. Spread them apart.
-- NEVER draw arrows on top of boxes.
-
-### ANNOTATIONS
-
-Add small annotations near boxes where available:
-- **BLUE** boxes: shape or size (\`"N=50k"\`, \`"(128,28,28)"\`, \`"80/20 split"\`)
-- **RED** boxes: key config (\`"lr=1e-3"\`, \`"depth=5"\`, \`"n_estimators=100"\`)
-- **GREEN** boxes: metric result (\`"AUC=0.84"\`, \`"acc=0.91"\`, \`"F1=0.78"\`)
-
-## Excalidraw Elements (For standard boxes and sketching outputs)
-
-### Required Fields
-\`type\`, \`id\` (unique string), \`x\`, \`y\`, \`width\`, \`height\`
-
-### Defaults (skip these)
-strokeColor="#1e1e1e", backgroundColor="transparent", fillStyle="solid", strokeWidth=2, roughness=1, opacity=100
-
-### Element Types (useful for sketching plots or visual elements inside White Output Boxes)
-
-**Rectangle**: \`{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 100 }\`
-- Used for main lane boxes or borders of plots.
-- \`roundness: { type: 3 }\` for rounded corners
-
-**Ellipse**: \`{ "type": "ellipse", "id": "e1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
-- Useful for pie charts, nodes in a neural net diagram, or scatter plot points.
-
-**Diamond**: \`{ "type": "diamond", "id": "d1", "x": 100, "y": 100, "width": 150, "height": 150 }\`
-- Useful for decision steps or specialized data representations.
-
-**Labeled shape (PREFERRED)**: Add \`label\` to any shape for auto-centered text.
-\`{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 80, "label": { "text": "X_train", "fontSize": 20 } }\`
-
-**Standalone text** (titles, annotations only):
-\`{ "type": "text", "id": "t1", "x": 150, "y": 138, "text": "AUC=0.95", "fontSize": 14 }\`
-
-**Arrow / Lines**: \`{ "type": "arrow", "id": "a1", "x": 300, "y": 150, "width": 200, "height": 0, "points": [[0,0],[200,0]], "endArrowhead": "arrow" }\`
-- Used for flow connections or drawing axes in a plot sketch.
-- To connect boxes, use bindings: \`"startBinding": { "elementId": "r1", "fixedPoint": [1, 0.5] }\`
-- endArrowhead: null | "arrow" | "bar" | "dot" | "triangle"
-
-### Drawing Output Box Sketches
-For every WHITE box (plot, printout), sketch a rough representation inside it using small inner shapes:
-- **line plot** → axes (arrows) + curve (lines), label x/y
-- **bar chart** → rectangles of different heights
-- **histogram** → contiguous rectangles
-- **heatmap** → shaded matrix grid
-- **table** → a few rectangles/lines representing rows
-
-### Camera Update (Guiding Attention)
-\`{ "type": "cameraUpdate", "width": 800, "height": 600, "x": 0, "y": 0 }\`
-- Width/height MUST be 4:3 ratio (400×300, 600×450, 800×600, 1200×900, 1600×1200)
-- ALWAYS start with a \`cameraUpdate\` before drawing the elements it frames. Multiple \`cameraUpdate\` elements can pan the view.
-
-### Deleting Elements
-Remove elements by id using the \`delete\` pseudo-element:
-\`{"type":"delete","ids":"b2,a1,t3"}\`
-- Place AFTER the elements you want to remove.
-- Never reuse an id after deleting it.
-
-### Drawing Order (CRITICAL for streaming)
-- Array order = z-order (first = back, last = front)
-- Emit progressively: background → shape → its label → its arrows → next shape
-
-## Notebook Diagram Example
-
-Example prompt: "Diagram the data preparation phase of this NLP notebook"
-
-\`\`\`json
-[
-  {"type":"cameraUpdate","width":600,"height":450,"x":0,"y":0},
-  {"type":"text","id":"t1","x":200,"y":20,"text":"NLP Data Prep","fontSize":24},
-  {"type":"rectangle","id":"l1","x":50,"y":60,"width":150,"height":40,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed","label":{"text":"raw_text.csv","fontSize":16}},
-  {"type":"text","id":"a1","x":210,"y":70,"text":"N=10k","fontSize":14},
-  {"type":"arrow","id":"arr1","x":125,"y":100,"width":0,"height":50,"points":[[0,0],[0,50]],"endArrowhead":"arrow","startBinding":{"elementId":"l1","fixedPoint":[0.5,1]}},
-  {"type":"rectangle","id":"l2","x":50,"y":150,"width":150,"height":40,"backgroundColor":"#e9ecef","strokeColor":"#868e96","label":{"text":"clean_text()","fontSize":16}},
-  {"type":"arrow","id":"arr2","x":125,"y":190,"width":0,"height":50,"points":[[0,0],[0,50]],"endArrowhead":"arrow","startBinding":{"elementId":"l2","fixedPoint":[0.5,1]}},
-  {"type":"rectangle","id":"l3","x":50,"y":240,"width":150,"height":40,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed","label":{"text":"cleaned_df","fontSize":16}},
-  {"type":"arrow","id":"arr3","x":200,"y":260,"width":50,"height":0,"points":[[0,0],[50,0]],"endArrowhead":"arrow","startBinding":{"elementId":"l3","fixedPoint":[1,0.5]}},
-  {"type":"rectangle","id":"l4","x":250,"y":240,"width":150,"height":40,"backgroundColor":"#e9ecef","strokeColor":"#868e96","label":{"text":"TF-IDF","fontSize":16}},
-  {"type":"cameraUpdate","width":600,"height":450,"x":150,"y":100}
-]
-\`\`\`
-
-## ML Pipeline Sequence Diagram Example
-
-Example prompt: "Show the sequence of model training and validation"
-
-This demonstrates an ML pipeline sequence flow using actor lifelines (Data, Preprocessor, Trainer, Evaluator):
-
-\`\`\`json
-[
-  {"type":"cameraUpdate","width":600,"height":450,"x":0,"y":0},
-  {"type":"text","id":"title","x":200,"y":15,"text":"Training Sequence","fontSize":24},
-  {"type":"rectangle","id":"h1","x":50,"y":60,"width":100,"height":40,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed","label":{"text":"Data","fontSize":16}},
-  {"type":"arrow","id":"hl1","x":100,"y":100,"width":0,"height":300,"points":[[0,0],[0,300]],"strokeStyle":"dashed","endArrowhead":null},
-  {"type":"rectangle","id":"h2","x":200,"y":60,"width":120,"height":40,"backgroundColor":"#e9ecef","strokeColor":"#868e96","label":{"text":"Preprocessor","fontSize":16}},
-  {"type":"arrow","id":"hl2","x":260,"y":100,"width":0,"height":300,"points":[[0,0],[0,300]],"strokeStyle":"dashed","endArrowhead":null},
-  {"type":"rectangle","id":"h3","x":370,"y":60,"width":100,"height":40,"backgroundColor":"#ffc9c9","strokeColor":"#ef4444","label":{"text":"Trainer","fontSize":16}},
-  {"type":"arrow","id":"hl3","x":420,"y":100,"width":0,"height":300,"points":[[0,0],[0,300]],"strokeStyle":"dashed","endArrowhead":null},
-  {"type":"arrow","id":"m1","x":100,"y":140,"width":160,"height":0,"points":[[0,0],[160,0]],"endArrowhead":"arrow","label":{"text":"raw batches","fontSize":14}},
-  {"type":"arrow","id":"m2","x":260,"y":200,"width":160,"height":0,"points":[[0,0],[160,0]],"endArrowhead":"arrow","label":{"text":"X_train, y_train","fontSize":14}},
-  {"type":"cameraUpdate","width":600,"height":450,"x":100,"y":100}
-]
-\`\`\`
-
-## Animation Mode — Data Flowing
-
-Instead of panning away, you can animate by DELETING elements and replacing them at the same position.
-
-Example prompt: "Animate data batches passing through a neural network"
-
-Batches move by adding a block and deleting the previous block in the sequence. Camera nudges add subtle motion.
-
-\`\`\`json
-[
-  {"type":"cameraUpdate","width":400,"height":300,"x":0,"y":0},
-  {"type":"rectangle","id":"net","x":200,"y":100,"width":80,"height":100,"backgroundColor":"#ffc9c9","strokeColor":"#ef4444","label":{"text":"ResNet","fontSize":16}},
-  {"type":"rectangle","id":"b1","x":50,"y":140,"width":30,"height":30,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":10,"y":0},
-  {"type":"delete","ids":"b1"},
-  {"type":"rectangle","id":"b2","x":100,"y":140,"width":30,"height":30,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":20,"y":0},
-  {"type":"delete","ids":"b2"},
-  {"type":"rectangle","id":"b3","x":150,"y":140,"width":30,"height":30,"backgroundColor":"#a5d8ff","strokeColor":"#4a9eed"},
-  {"type":"cameraUpdate","width":400,"height":300,"x":30,"y":0},
-  {"type":"delete","ids":"b3"},
-  {"type":"rectangle","id":"b4","x":320,"y":140,"width":30,"height":30,"backgroundColor":"#b2f2bb","strokeColor":"#22c55e","label":{"text":"pred","fontSize":10}}
-]
-\`\`\`
-
-## Tips
-- **Text contrast is CRITICAL** — Minimum text color on white: #757575.
-- Do NOT use emoji in text — they don't render in Excalidraw's font.
-- \`cameraUpdate\` is MAGICAL — use multiple to guide attention as you draw.
-`;
 
 const JUPYTER_INSTRUCTIONS = `# Jupyter Notebook Diagramming — Excalidraw Spec
 
@@ -619,17 +318,6 @@ Examples of color mixed within a single lane:
 
 ---
 
-## BOX CONTENT RULES
-
-- Each box must contain a label that describes what the box represents.
-- The label must be concise and clear.
-- The labels can be short description (e.g. Split test data) or contain references to the functions, variables or markdown in the notebook (e.g. \`Step 6: train_test_split()\`).
-- In each box you can draw visualizations (e.g. a tree model, tables, etc.) when it helps understanding the content of the box.
-- Visualization are mandatory in output boxes with plots, clearly sketching what is being plotted (e.g. histogram of variable X).
-- Each box can have at most one visualization.
-
----
-
 ## LANES (workflow stage)
 
 Lanes are spatial columns that group boxes by pipeline stage — not by box type.
@@ -655,16 +343,27 @@ When in doubt: assign the lane by _when_ it happens, assign the color by _what_ 
 
 ---
 
-## DEPLOYMENT ANNOTATIONS (no separate lane)
+## BOX CONTENT RULES
 
-There is no DEPLOY lane. Deployment intent is captured with annotations on existing boxes:
+- Each box must contain a label that describes what the box represents.
+- The label must be concise and clear.
+- The labels can be short description (e.g. Split test data) or contain references to the functions, variables or markdown in the notebook (e.g. \`Step 6: train_test_split()\`).
+- In each box you should draw visualizations (e.g. a tree model, tables, etc.) to help understand the represented content of the box.
+- Visualization are mandatory in output boxes with plots, clearly sketching what is being plotted (e.g. histogram of variable X).
+- Each box can have at most one visualization.
 
-- If the notebook saves a model to disk (\`joblib.dump()\`, \`model.save()\`, \`torch.save()\`),
-  draw a back-arrow to ARTIFACTS with a label for the saved file (e.g., "model.pkl").
-  Add a small \`★ deploy\` tag near that ARTIFACTS box.
-- If the notebook does not save the model but one is clearly the final/intended one,
-  annotate its RED box directly with \`★ deploy\`.
-- Only one model should carry the \`★ deploy\` tag.
+Example: If a Jupyter notebook is loading a csv file, you may draw 2 boxes:
+- The first one (BLUE) show "mydata.csv" with a drawing of a file [artifacts lane].
+- The arrow reads "load dataframe" [crossing to processing lane].
+- The second one (BLUE) show "df_raw" with a drawing of a table [processing lane]
+
+## DEPLOYMENT ANNOTATIONS
+
+Deployment intent is captured with annotations on existing boxes:
+
+- If the notebook saves a model (\`joblib.dump()\`, \`model.save()\`, \`torch.save()\`),
+  draw it in ARTIFACTS with a label for the saved file (e.g., "model.pkl").
+  Add a small deploy tag near that ARTIFACTS box.
 
 ---
 
@@ -691,6 +390,7 @@ Within a lane, use whatever direction best shows temporal order.
 - NEVER draw arrows on top of boxes.
 - Arrows that cross tracks use a small diagonal or gentle curve — never pass through a box.
 - When two arrows leave the same box to different tracks, draw them as a Y-fork.
+- IMPORTANT: Draw round or slightly bent arrows instead of straight arrows when a straight arrow would cross another arrow or box.
 
 ---
 
@@ -820,7 +520,7 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
     },
     async (): Promise<CallToolResult> => {
       readMeCalled = true;
-      const combined = `${RECALL_CHEAT_SHEET}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+      const combined = `${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
       return { content: [{ type: "text", text: combined }] };
     },
   );
@@ -974,7 +674,7 @@ You MUST call read_me first to learn the element format — diagrams will not re
       // has the format reference for any subsequent create_view calls.
       const specReminder = readMeCalled
         ? ""
-        : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPEC}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+        : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
 
       return {
         content: [{
