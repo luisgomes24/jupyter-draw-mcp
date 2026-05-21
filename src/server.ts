@@ -20,7 +20,7 @@ const DIST_DIR = import.meta.filename.endsWith(".ts")
 // ============================================================
 // RECALL: shared knowledge for the agent
 // ============================================================
-const EXCALIDRAW_SPEC = `# Excalidraw Element Format
+const EXCALIDRAW_SPECS = `# Excalidraw Element Format
 
 Thanks for calling read_me! Do NOT call it again in this conversation — you will not see anything new. Now use create_view to draw.
 ---
@@ -73,26 +73,6 @@ Canvas background is white.
 Arrow: \`"startBinding": { "elementId": "r1", "fixedPoint": [1, 0.5] }\`
 fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
 
-**cameraUpdate** (pseudo-element — controls the viewport, not drawn):
-\`{ "type": "cameraUpdate", "width": 800, "height": 600, "x": 0, "y": 0 }\`
-- x, y: top-left corner of the visible area (scene coordinates)
-- width, height: size of the visible area — MUST be 4:3 ratio (400×300, 600×450, 800×600, 1200×900, 1600×1200)
-- Animates smoothly between positions — use multiple cameraUpdates to guide attention as you draw
-- No \`id\` needed — this is not a drawn element
-
-**delete** (pseudo-element — removes elements by id):
-\`{ "type": "delete", "ids": "b2,a1,t3" }\`
-- Comma-separated list of element ids to remove
-- Also removes bound text elements (matching \`containerId\`)
-- Place AFTER the elements you want to remove
-- Never reuse a deleted id — always assign new ids to replacements
-
-### Drawing Order (CRITICAL for streaming)
-- Array order = z-order (first = back, last = front)
-- **Emit progressively**: background → shape → its label → its arrows → next shape
-- BAD: all rectangles → all texts → all arrows
-- GOOD: bg_shape → shape1 → text1 → arrow1 → shape2 → text2 → ...
-
 ### Example: Two connected labeled boxes
 \`\`\`json
 [
@@ -102,6 +82,27 @@ fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
   { "type": "arrow", "id": "a1", "x": 300, "y": 150, "width": 150, "height": 0, "points": [[0,0],[150,0]], "endArrowhead": "arrow", "startBinding": { "elementId": "b1", "fixedPoint": [1, 0.5] }, "endBinding": { "elementId": "b2", "fixedPoint": [0, 0.5] } }
 ]
 \`\`\`
+
+## General Excalidraw Tips
+- Do NOT call read_me again — you already have everything you need
+- Use the color palette consistently
+- **Text contrast is CRITICAL** — never use light gray (#b0b0b0, #999) on white backgrounds. Minimum text color on white: #757575. For colored text on light fills, use dark variants (#15803d not #22c55e, #2563eb not #4a9eed). White text needs dark backgrounds (#9a5030 not #c4795b)
+- Do NOT use emoji in text — they don't render in Excalidraw's font
+- **Rectangles only for diagram nodes** — Ellipses, diamonds, and similar shapes are for in-box sketches (charts, icons, decorative art) only
+`;
+
+const LIVE_UPDATES_PROMPT = `# Live Updates & Camera Reference
+
+This section describes how to use camera updates, drawing progression, deletion animations, and checkpoint restoration to show a diagram being constructed live to the user.
+
+## Camera Updates
+
+**cameraUpdate** (pseudo-element — controls the viewport, not drawn):
+\`{ "type": "cameraUpdate", "width": 800, "height": 600, "x": 0, "y": 0 }\`
+- x, y: top-left corner of the visible area (scene coordinates)
+- width, height: size of the visible area — MUST be 4:3 ratio (400×300, 600×450, 800×600, 1200×900, 1600×1200)
+- Animates smoothly between positions — use multiple cameraUpdates to guide attention as you draw
+- No \`id\` needed — this is not a drawn element
 
 ### Camera & Sizing (CRITICAL for readability)
 
@@ -141,6 +142,43 @@ Examples:
 \`{ "type": "cameraUpdate", "width": 1600, "height": 1200, "x": -50, "y": -50 }\` — panorama overview
 
 Tip: For large diagrams, emit a cameraUpdate to focus on each section as you draw it.
+
+---
+
+## Live Diagram Building
+
+### Drawing Order (CRITICAL for streaming)
+- Array order = z-order (first = back, last = front)
+- **Emit progressively**: background → shape → its label → its arrows → next shape
+- BAD: all rectangles → all texts → all arrows
+- GOOD: bg_shape → shape1 → text1 → arrow1 → shape2 → text2 → ...
+
+### Deleting Elements
+
+Remove elements by id using the \`delete\` pseudo-element:
+
+\`{"type":"delete","ids":"b2,a1,t3"}\`
+
+Works in two modes:
+- **With restoreCheckpoint**: restore a saved state, then surgically remove specific elements before adding new ones
+- **Inline (animation mode)**: draw elements, then delete and replace them later in the same array to create transformation effects
+
+Place delete entries AFTER the elements you want to remove. The final render filters them out.
+
+**IMPORTANT**: Every element id must be unique. Never reuse an id after deleting it — always assign a new id to replacement elements.
+
+### Checkpoints (restoring previous state)
+
+Every create_view call returns a \`checkpointId\` in its response. To continue from a previous diagram state, start your elements array with a restoreCheckpoint element:
+
+\`[{"type":"restoreCheckpoint","id":"<checkpointId>"}, ...additional new elements...]\`
+
+The saved state (including any user edits made in fullscreen) is loaded from the client, and your new elements are appended on top. This saves tokens — you don't need to re-send the entire diagram.
+
+### Live Updates Tip
+- cameraUpdate is MAGICAL and users love it! please use it a lot to guide the user's attention as you draw. It makes a huge difference in readability and engagement.
+
+---
 
 ## Diagram Example
 
@@ -239,36 +277,6 @@ All actor header boxes are rectangles. Lifelines are arrows with \`endArrowhead:
   {"type":"cameraUpdate","width":800,"height":600,"x":-5,"y":2}
 ]
 \`\`\`
-
-## Checkpoints (restoring previous state)
-
-Every create_view call returns a \`checkpointId\` in its response. To continue from a previous diagram state, start your elements array with a restoreCheckpoint element:
-
-\`[{"type":"restoreCheckpoint","id":"<checkpointId>"}, ...additional new elements...]\`
-
-The saved state (including any user edits made in fullscreen) is loaded from the client, and your new elements are appended on top. This saves tokens — you don't need to re-send the entire diagram.
-
-## Deleting Elements
-
-Remove elements by id using the \`delete\` pseudo-element:
-
-\`{"type":"delete","ids":"b2,a1,t3"}\`
-
-Works in two modes:
-- **With restoreCheckpoint**: restore a saved state, then surgically remove specific elements before adding new ones
-- **Inline (animation mode)**: draw elements, then delete and replace them later in the same array to create transformation effects
-
-Place delete entries AFTER the elements you want to remove. The final render filters them out.
-
-**IMPORTANT**: Every element id must be unique. Never reuse an id after deleting it — always assign a new id to replacement elements.
-
-## Tips
-- Do NOT call read_me again — you already have everything you need
-- Use the color palette consistently
-- **Text contrast is CRITICAL** — never use light gray (#b0b0b0, #999) on white backgrounds. Minimum text color on white: #757575. For colored text on light fills, use dark variants (#15803d not #22c55e, #2563eb not #4a9eed). White text needs dark backgrounds (#9a5030 not #c4795b)
-- Do NOT use emoji in text — they don't render in Excalidraw's font
-- cameraUpdate is MAGICAL and users love it! please use it a lot to guide the user's attention as you draw. It makes a huge difference in readability and engagement.
-- **Rectangles only for diagram nodes** — Ellipses, diamonds, and similar shapes are for in-box sketches (charts, icons, decorative art) only
 `;
 
 
@@ -512,7 +520,7 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
     },
     async (): Promise<CallToolResult> => {
       readMeCalled = true;
-      const combined = `${RECALL_CHEAT_SHEET}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+      const combined = `${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
       return { content: [{ type: "text", text: combined }] };
     },
   );
@@ -666,7 +674,7 @@ You MUST call read_me first to learn the element format — diagrams will not re
       // has the format reference for any subsequent create_view calls.
       const specReminder = readMeCalled
         ? ""
-        : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPEC}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+        : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
 
       return {
         content: [{
