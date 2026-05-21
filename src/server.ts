@@ -473,9 +473,13 @@ Keep the diagram legible at a glance: if it feels crowded, collapse more steps.
 // MCP Server Instructions — injected into every conversation
 // This ensures the LLM has the spec even if it doesn't call read_me.
 // ============================================================
-const SERVER_INSTRUCTIONS = `You are an Excalidraw diagram assistant specialized in Jupyter notebook diagramming. You create beautiful, hand-drawn diagrams using the create_view tool.
+const SERVER_INSTRUCTIONS = `You are an Excalidraw diagram assistant specialized in Jupyter notebook diagramming. You create beautiful, hand-drawn diagrams.
 
-IMPORTANT: Before calling create_view for the first time, you MUST call read_me to learn the Excalidraw element format, color palettes, camera sizing, AND the Jupyter Notebook Diagramming rules. The spec contains mandatory rules you must follow — do NOT guess the format.
+Two output modes are available — pick based on what the user wants:
+- create_view (DEFAULT): renders the diagram LIVE in an interactive in-chat widget with draw-on animations and camera pans. Use this whenever the user is watching the diagram come together in the conversation.
+- generate_diagram_file: produces a static .excalidraw file (written to disk if a path is given, otherwise returned as text) with no live view. Use this when the user only wants the final file to save, open later, or share.
+
+IMPORTANT: Before calling create_view OR generate_diagram_file for the first time, you MUST call read_me to learn the Excalidraw element format, color palettes, camera sizing, AND the Jupyter Notebook Diagramming rules. The spec contains mandatory rules you must follow — do NOT guess the format. (For generate_diagram_file the camera/animation guidance does not apply.)
 
 ## Required Flow for Jupyter Notebooks
 
@@ -487,7 +491,7 @@ IMPORTANT: Before calling create_view for the first time, you MUST call read_me 
    - Color and Lane are INDEPENDENT dimensions
    - Add annotations (data shapes, model configs, metric results)
    - Follow the layout anti-patterns list (no single-column centering, no arrow-through-box, etc.)
-4. Call create_view with the complete diagram
+4. Render the diagram with the complete element array — create_view for the live, animated in-chat view (default), or generate_diagram_file if the user only wants the final .excalidraw file
 
 Key rules (full details in read_me):
 - Elements are a JSON array of Excalidraw element objects
@@ -597,8 +601,8 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
     "create_view",
     {
       title: "Draw Diagram",
-      description: `Renders a hand-drawn diagram using Excalidraw elements.
-Elements stream in one by one with draw-on animations.
+      description: `Renders a hand-drawn diagram LIVE in an interactive in-chat widget — elements stream in one by one with draw-on animations and camera pans. This is the DEFAULT mode for showing a user a diagram being built.
+If you only need the final .excalidraw FILE (to save to disk or open later) and do NOT need the live animated view, use generate_diagram_file instead.
 You MUST call read_me first to learn the element format — diagrams will not render correctly without following the spec.`,
       inputSchema: z.object({
         elements: z.string().describe(
@@ -693,10 +697,14 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
   );
 
   // ============================================================
-  // Tool 4: export_diagram (background export — no UI)
-  // Uses @moona3k/excalidraw-export for proper hand-drawn SVG
-  // rendering (roughjs + Virgil font, no DOM needed).
+  // Tool 4: export_diagram (DORMANT FALLBACK — intentionally NOT registered)
+  // Renders .excalidraw + hand-drawn .svg + optional .png to disk via
+  // @moona3k/excalidraw-export (roughjs + Virgil font, no DOM needed).
+  // Kept in the code for future server-side rendering work; the live MCP only
+  // exposes create_view (live view) and generate_diagram_file (.excalidraw file).
+  // Set ENABLE_EXPORT_DIAGRAM to true to re-register it.
   // ============================================================
+  const ENABLE_EXPORT_DIAGRAM: boolean = false;
 
   /**
    * Resolve restoreCheckpoint + delete pseudo-elements into a flat array.
@@ -853,7 +861,7 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
     return result;
   }
 
-  server.registerTool(
+  if (ENABLE_EXPORT_DIAGRAM) server.registerTool(
     "export_diagram",
     {
       description: `Exports a diagram as .excalidraw, .svg, and optionally .png files (no live UI preview).
@@ -981,6 +989,97 @@ The .svg has full hand-drawn Excalidraw styling (Virgil font, rough sketched lin
           isError: true,
         };
       }
+    },
+  );
+
+  // ============================================================
+  // Tool 4b: generate_diagram_file (.excalidraw file output — no live view)
+  // File-mode counterpart to create_view: converts the same elements into a
+  // standard .excalidraw file and either writes it to disk or returns the JSON.
+  // ============================================================
+  server.registerTool(
+    "generate_diagram_file",
+    {
+      description: `Produces a STATIC Excalidraw diagram and returns it as a standard .excalidraw file — the file-mode counterpart to create_view.
+
+Use this when the user (or you) only want the final diagram FILE: to save to disk, open later at excalidraw.com or in the Excalidraw app, or commit to a repo. There is NO live in-chat rendering, NO draw-on animation, and NO interactive widget.
+
+Use create_view instead (the DEFAULT) when the user should watch the diagram being drawn live in the chat.
+
+Input is the SAME JSON array of Excalidraw elements as create_view. In this mode you do NOT need cameraUpdate elements (there is no live camera) and element ordering does not matter (there is no streaming). Call read_me first for the element format; the camera, animation, and checkpoint guidance there does not apply to this tool.
+
+If "path" is provided, the .excalidraw file is written there (a .excalidraw extension is added if missing) and the path is returned. Otherwise the file content is returned as text for you to save or hand to the user.`,
+      inputSchema: z.object({
+        elements: z.string().describe(
+          "JSON array string of Excalidraw elements (same format as create_view). Must be valid JSON — no comments, no trailing commas. Call read_me first for the format."
+        ),
+        path: z.string().optional().describe(
+          "Optional output path for the .excalidraw file. If provided, the file is written to disk and the path is returned; otherwise the file content is returned as text."
+        ),
+      }),
+      annotations: { readOnlyHint: false },
+    },
+    async ({ elements, path: outPath }): Promise<CallToolResult> => {
+      if (elements.length > MAX_INPUT_BYTES) {
+        return {
+          content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit. Reduce the number of elements.` }],
+          isError: true,
+        };
+      }
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(elements);
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Invalid JSON in elements: ${(e as Error).message}. Ensure no comments, no trailing commas, and proper quoting.` }],
+          isError: true,
+        };
+      }
+      if (!Array.isArray(parsed)) {
+        return {
+          content: [{ type: "text", text: "elements must be a JSON array of Excalidraw element objects." }],
+          isError: true,
+        };
+      }
+
+      // Convert label shorthand → bound text and strip pseudo-elements (cameraUpdate, etc.)
+      const excalidrawElements = convertToExcalidrawFormat(parsed);
+      const excalidrawFile = {
+        type: "excalidraw",
+        version: 2,
+        source: "https://github.com/jupyter-draw-mcp",
+        elements: excalidrawElements,
+        appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+        files: {},
+      };
+      const json = JSON.stringify(excalidrawFile, null, 2);
+
+      if (outPath) {
+        try {
+          let resolved = path.resolve(outPath);
+          if (!resolved.toLowerCase().endsWith(".excalidraw")) resolved += ".excalidraw";
+          await fs.writeFile(resolved, json, "utf-8");
+          return {
+            content: [{ type: "text", text: `Excalidraw file written to ${resolved} (${excalidrawElements.length} elements). Open it at https://excalidraw.com or in the Excalidraw app.` }],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: `Failed to write file: ${(err as Error).message}` }],
+            isError: true,
+          };
+        }
+      }
+
+      const specReminder = readMeCalled
+        ? ""
+        : `\n\n⚠ You did not call read_me before generating. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+
+      return {
+        content: [
+          { type: "text", text: `Generated .excalidraw file (${excalidrawElements.length} elements). Save the JSON below with a .excalidraw extension, or pass a "path" argument to write it directly next time.${specReminder}` },
+          { type: "text", text: json },
+        ],
+      };
     },
   );
 
