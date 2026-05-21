@@ -83,6 +83,19 @@ fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
 ]
 \`\`\`
 
+### Example: Output box with an inner sketch (Bar Chart)
+To draw a visualization inside a box, draw the outer rectangle first, then the inner shapes.
+\`\`\`json
+[
+  { "type": "rectangle", "id": "out1", "x": 100, "y": 100, "width": 200, "height": 180, "backgroundColor": "#ffffff", "fillStyle": "solid", "label": { "text": "Feature Importance", "fontSize": 16 } },
+  { "type": "arrow", "id": "ax1", "x": 120, "y": 240, "width": 0, "height": -80, "points": [[0,0],[0,-80]], "strokeWidth": 1 },
+  { "type": "arrow", "id": "ax2", "x": 120, "y": 240, "width": 140, "height": 0, "points": [[0,0],[140,0]], "strokeWidth": 1 },
+  { "type": "rectangle", "id": "bar1", "x": 135, "y": 200, "width": 20, "height": 40, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
+  { "type": "rectangle", "id": "bar2", "x": 165, "y": 180, "width": 20, "height": 60, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
+  { "type": "rectangle", "id": "bar3", "x": 195, "y": 220, "width": 20, "height": 20, "backgroundColor": "#a5d8ff", "fillStyle": "solid" }
+]
+\`\`\`
+
 ## General Excalidraw Tips
 - Do NOT call read_me again — you already have everything you need
 - Use the color palette consistently
@@ -432,10 +445,10 @@ Add small annotations near boxes where available:
 
 ---
 
-## OUTPUT BOX SKETCHES
+## OUTPUT BOX SKETCHES (MANDATORY)
 
-For every WHITE box (plot, printout), sketch a rough representation inside it
-using small inner shapes (ellipses, rectangles, lines):
+For every WHITE box (plot, printout), you MUST sketch a rough representation inside it
+using small inner shapes (ellipses, rectangles, lines). DO NOT leave output boxes empty!
 
 - **line plot** → axes + curve, label x/y (e.g., "loss vs epoch")
 - **bar chart** → bars of different heights, label x axis
@@ -487,6 +500,7 @@ IMPORTANT: Before calling create_view for the first time, you MUST call read_me 
    - Color and Lane are INDEPENDENT dimensions
    - Add annotations (data shapes, model configs, metric results)
    - Follow the layout anti-patterns list (no single-column centering, no arrow-through-box, etc.)
+   - CRITICAL: For every output box (plots, charts, tables), you MUST sketch a visualization inside it using inner shapes (lines, bars, grids). DO NOT leave output boxes empty.
 4. Call create_view with the complete diagram
 
 Key rules (full details in read_me):
