@@ -602,17 +602,24 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
     {
       title: "Draw Diagram",
       description: `Renders a hand-drawn diagram LIVE in an interactive in-chat widget — elements stream in one by one with draw-on animations and camera pans. This is the DEFAULT mode for showing a user a diagram being built.
-If you only need the final .excalidraw FILE (to save to disk or open later) and do NOT need the live animated view, use generate_diagram_file instead.
-You MUST call read_me first to learn the element format — diagrams will not render correctly without following the spec.`,
+You MUST call read_me first to learn the element format — diagrams will not render correctly without following the spec.
+
+File output: pass "outputPath" to ALSO save a standalone .excalidraw file to disk (server-side) as a side effect of the live view. For FILE-ONLY output with NO live view (batch generation, or when the user explicitly wants only the .excalidraw file), set "render": false — generate the elements with the same care as the live view (progressive per-node ordering), and either pass "outputPath" to write the file or receive the file JSON back as text.`,
       inputSchema: z.object({
         elements: z.string().describe(
           "JSON array string of Excalidraw elements. Must be valid JSON — no comments, no trailing commas. Keep compact. You MUST call read_me first for format reference."
+        ),
+        outputPath: z.string().optional().describe(
+          "Optional path to also write a standalone .excalidraw file to disk (server-side). A .excalidraw extension is added if missing; parent directories are created automatically. The resolved path is returned. Prefer an absolute path — relative paths resolve from the MCP server's working directory."
+        ),
+        render: z.boolean().optional().describe(
+          "Whether to show the live in-chat widget. Defaults to true. Set to false for file-only output (no animated view) — e.g. batch generation or when the user only wants the .excalidraw file. When false, pass outputPath to write the file, otherwise the file JSON is returned as text."
         ),
       }),
       annotations: { readOnlyHint: true },
       _meta: { ui: { resourceUri } },
     },
-    async ({ elements }): Promise<CallToolResult> => {
+    async ({ elements, outputPath, render }): Promise<CallToolResult> => {
       if (elements.length > MAX_INPUT_BYTES) {
         return {
           content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit. Reduce the number of elements or use checkpoints to build incrementally.` }],
@@ -674,11 +681,54 @@ You MUST call read_me first to learn the element format — diagrams will not re
       const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
       await store.save(checkpointId, { elements: resolvedElements });
 
+      // Build + write a standalone .excalidraw file when requested
+      // (outputPath given as a side-effect of the live view, OR file-only mode).
+      let fileNote = "";
+      let inlineFileJson: string | null = null;
+      if (outputPath || render === false) {
+        const excalidrawElements = convertToExcalidrawFormat(resolvedElements);
+        const json = JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "https://github.com/jupyter-draw-mcp",
+          elements: excalidrawElements,
+          appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+          files: {},
+        }, null, 2);
+
+        if (outputPath) {
+          try {
+            let resolved = path.resolve(outputPath);
+            if (!resolved.toLowerCase().endsWith(".excalidraw")) resolved += ".excalidraw";
+            await fs.mkdir(path.dirname(resolved), { recursive: true });
+            await fs.writeFile(resolved, json, "utf-8");
+            fileNote = `\n\n.excalidraw file written to ${resolved} (${excalidrawElements.length} elements). Open it at https://excalidraw.com or in the Excalidraw app.`;
+          } catch (err) {
+            fileNote = `\n\nFailed to write .excalidraw file: ${(err as Error).message}`;
+          }
+        } else {
+          // render === false with no path → hand the file JSON back as text.
+          inlineFileJson = json;
+        }
+      }
+
       // If read_me was never called, include the spec in the response so the LLM
       // has the format reference for any subsequent create_view calls.
       const specReminder = readMeCalled
         ? ""
         : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+
+      // File-only mode: no live widget rendered — return a concise file result.
+      if (render === false) {
+        const head = inlineFileJson
+          ? `Generated .excalidraw file (file-only mode, no live view). Save the JSON below with a .excalidraw extension, or pass outputPath next time to write it directly.`
+          : `Generated .excalidraw file (file-only mode, no live view).${fileNote}`;
+        const content: CallToolResult["content"] = [
+          { type: "text", text: `${head} Checkpoint id: "${checkpointId}".${specReminder}` },
+        ];
+        if (inlineFileJson) content.push({ type: "text", text: inlineFileJson });
+        return { content, structuredContent: { checkpointId } };
+      }
 
       return {
         content: [{
@@ -689,7 +739,7 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
 2) decide whether you want to make new diagram from scratch OR - use this one as starting checkpoint:
   simply start from the first element [{"type":"restoreCheckpoint","id":"${checkpointId}"}, ...your new elements...]
   this will use same diagram state as the user currently sees, including any manual edits they made in fullscreen, allowing you to add elements on top.
-  To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}${specReminder}`
+  To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}${specReminder}${fileNote}`
         }],
         structuredContent: { checkpointId },
       };
@@ -1000,15 +1050,11 @@ The .svg has full hand-drawn Excalidraw styling (Virgil font, rough sketched lin
   server.registerTool(
     "generate_diagram_file",
     {
-      description: `Produces a STATIC Excalidraw diagram and returns it as a standard .excalidraw file — the file-mode counterpart to create_view.
+      description: `Produces a STATIC Excalidraw diagram and returns it as a standard .excalidraw file.
 
-Use this when the user (or you) only want the final diagram FILE: to save to disk, open later at excalidraw.com or in the Excalidraw app, or commit to a repo. There is NO live in-chat rendering, NO draw-on animation, and NO interactive widget.
-
-Use create_view instead (the DEFAULT) when the user should watch the diagram being drawn live in the chat.
-
-Input is the SAME JSON array of Excalidraw elements as create_view. In this mode you do NOT need cameraUpdate elements (there is no live camera) and element ordering does not matter (there is no streaming). Call read_me first for the element format; the camera, animation, and checkpoint guidance there does not apply to this tool.
-
-If "path" is provided, the .excalidraw file is written there (a .excalidraw extension is added if missing) and the path is returned. Otherwise the file content is returned as text for you to save or hand to the user.`,
+Use this when the user (or you) only want the final diagram FILE: to save to disk.
+If "path" is provided, the .excalidraw file is written there (a .excalidraw extension is added if missing) and the path is returned. 
+Otherwise the file content is returned as text for you to save or hand to the user.`,
       inputSchema: z.object({
         elements: z.string().describe(
           "JSON array string of Excalidraw elements (same format as create_view). Must be valid JSON — no comments, no trailing commas. Call read_me first for the format."
