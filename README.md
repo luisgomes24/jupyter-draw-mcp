@@ -9,9 +9,10 @@ An MCP server designed to generate beautiful, hand-drawn Excalidraw diagrams fro
   - **Live Interactive View (`create_view`)**: Renders the diagram LIVE in an interactive in-chat widget with draw-on animations and smooth viewport camera panning.
   - **Static File Export (`generate_diagram_file`)**: Produces a standard `.excalidraw` file directly to disk, without the live chat interface.
 - **Strict Diagramming Rules**: 
-  - **Lanes**: Pipeline stages (ARTIFACTS, PROCESSING, MODELLING, EVALUATION, REPORT).
+  - **Lanes**: Pipeline stages (ARTIFACTS, PROCESSING, MODELLING, EVALUATION, REPORT) drawn as visible boundary rectangles with header text.
   - **Colors**: Entity types (BLUE for data, GRAY for process, RED for model, GREEN for evaluation, WHITE for output).
-  - **Annotations & Sketches**: Automatically includes hyper-parameters, data shapes, metrics, and inner sketches of visualizations (e.g., bar charts, histograms).
+  - **Annotations & Sketches**: Automatically includes hyper-parameters, data shapes, metrics, and inner sketches of visualizations (e.g., bar charts, histograms) with properly positioned labels.
+- **Self-Review**: After rendering, the model examines its own screenshot and fixes overlapping elements, lane violations, and label occlusion (up to 2 revision passes).
 
 ## Setup & Installation
 
@@ -55,7 +56,9 @@ The AI assistant follows a strict workflow:
 1. Calls `read_me` to ingest the mandatory Excalidraw formatting specs and Jupyter diagramming rules.
 2. Calls `read_notebook` to parse the `.ipynb` file.
 3. Analyzes the cells and maps them to entities (data, processes, models, outputs).
-4. Calls `create_view` (for an animated in-chat experience) or `generate_diagram_file` (for a static file output) with the computed elements array.
+4. Plans lane x-ranges and draws lane boundary rectangles before placing any boxes.
+5. Calls `create_view` (for an animated in-chat experience) or `generate_diagram_file` (for a static file output) with the computed elements array.
+6. Examines the rendered screenshot and fixes overlapping elements or lane violations using checkpoint-based revision (up to 2 passes).
 
 ## Credits
 

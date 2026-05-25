@@ -84,17 +84,26 @@ fixedPoint: top=[0.5,0], bottom=[0.5,1], left=[0,0.5], right=[1,0.5]
 \`\`\`
 
 ### Example: Output box with an inner sketch (Bar Chart)
-To draw a visualization inside a box, draw the outer rectangle first, then the inner shapes.
+When a box contains an inner visualization, DO NOT use \`label:{}\` — it centers text in the
+middle of the box and the sketch elements (bars, axes, dots) will render ON TOP of the label.
+Instead:
+1. Make the box **taller** — add ~60px extra height for a label band at the top
+2. Use a **standalone text element** positioned near the top of the box (y = box.y + 10)
+3. Start all sketch shapes **below the label band** (y ≥ box.y + 40)
+
 \`\`\`json
 [
-  { "type": "rectangle", "id": "out1", "x": 100, "y": 100, "width": 200, "height": 180, "backgroundColor": "#ffffff", "fillStyle": "solid", "label": { "text": "Feature Importance", "fontSize": 16 } },
-  { "type": "arrow", "id": "ax1", "x": 120, "y": 240, "width": 0, "height": -80, "points": [[0,0],[0,-80]], "strokeWidth": 1 },
-  { "type": "arrow", "id": "ax2", "x": 120, "y": 240, "width": 140, "height": 0, "points": [[0,0],[140,0]], "strokeWidth": 1 },
-  { "type": "rectangle", "id": "bar1", "x": 135, "y": 200, "width": 20, "height": 40, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
-  { "type": "rectangle", "id": "bar2", "x": 165, "y": 180, "width": 20, "height": 60, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
-  { "type": "rectangle", "id": "bar3", "x": 195, "y": 220, "width": 20, "height": 20, "backgroundColor": "#a5d8ff", "fillStyle": "solid" }
+  { "type": "rectangle", "id": "out1", "x": 100, "y": 100, "width": 200, "height": 220, "backgroundColor": "#ffffff", "fillStyle": "solid" },
+  { "type": "text", "id": "out1_title", "x": 140, "y": 110, "text": "Feature Importance", "fontSize": 16, "strokeColor": "#1e1e1e" },
+  { "type": "arrow", "id": "ax1", "x": 120, "y": 280, "width": 0, "height": -120, "points": [[0,0],[0,-120]], "strokeWidth": 1, "endArrowhead": "arrow" },
+  { "type": "arrow", "id": "ax2", "x": 120, "y": 280, "width": 160, "height": 0, "points": [[0,0],[160,0]], "strokeWidth": 1, "endArrowhead": "arrow" },
+  { "type": "rectangle", "id": "bar1", "x": 140, "y": 230, "width": 25, "height": 50, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
+  { "type": "rectangle", "id": "bar2", "x": 175, "y": 200, "width": 25, "height": 80, "backgroundColor": "#a5d8ff", "fillStyle": "solid" },
+  { "type": "rectangle", "id": "bar3", "x": 210, "y": 250, "width": 25, "height": 30, "backgroundColor": "#a5d8ff", "fillStyle": "solid" }
 ]
 \`\`\`
+
+**CRITICAL**: This rule applies to ALL boxes with inner sketches — always use standalone text at the top, never \`label:{}\`.
 
 ## General Excalidraw Tips
 - Do NOT call read_me again — you already have everything you need
@@ -335,7 +344,6 @@ Examples of color mixed within a single lane:
 
 Lanes are spatial columns that group boxes by pipeline stage — not by box type.
 Place a box in the lane that describes the stage of the notebook where it appears.
-Lanes are created in the END, after knowing the position of all the boxes.
 
 \`\`\`
 ┌───────────┬────────────┬────────────┬────────────┬────────────┐
@@ -354,6 +362,32 @@ Lanes are created in the END, after knowing the position of all the boxes.
 "Typical colors" above are guidance, not rules. **Any color can appear in any lane.**
 When in doubt: assign the lane by _when_ it happens, assign the color by _what_ it is.
 
+### LANE PLANNING (MANDATORY — do this BEFORE placing boxes)
+
+1. **Decide which lanes** the notebook needs.
+2. **Assign x-coordinate ranges** for each lane. Each lane gets a column of a fixed width (at least 200px). Leave 20px gaps between lanes. Example for 5 lanes in an 800-wide camera:
+   - ARTIFACTS: x 0–180
+   - PROCESSING: x 200–400
+   - MODELLING: x 420–600
+   - EVALUATION: x 620–800
+   - REPORT: x 820–1000
+3. **Draw lane boundary rectangles FIRST** — one large, low-opacity background rectangle per lane spanning the full diagram height. These are visual guides that make lanes obvious:
+   \`\`\`json
+   { "type": "rectangle", "id": "lane_processing", "x": 200, "y": 50, "width": 200, "height": 600, "backgroundColor": "#f8f9fa", "fillStyle": "solid", "opacity": 15, "strokeColor": "#dee2e6", "strokeWidth": 1 }
+   \`\`\`
+4. **Draw lane header text** above each lane boundary rectangle:
+   \`\`\`json
+   { "type": "text", "id": "lane_processing_hdr", "x": 240, "y": 30, "text": "PROCESSING", "fontSize": 20, "strokeColor": "#868e96" }
+   \`\`\`
+5. **Place ALL boxes strictly within their lane's x-range.** A box's x position and x+width must fall within the assigned lane boundaries. No box may straddle or exceed its lane.
+
+### LANE ENFORCEMENT RULES
+
+- **MANDATORY**: Every box must be fully contained within its assigned lane's x-range.
+- If a box would be too wide for its lane, make the lane wider or shrink the box — never let it overflow.
+- Arrows may cross lane boundaries (that's how data flows between stages), but the boxes they connect must each sit within their own lane.
+- When reviewing your diagram, check that every box respects its lane boundaries.
+
 ---
 
 ## BOX CONTENT RULES
@@ -362,8 +396,9 @@ When in doubt: assign the lane by _when_ it happens, assign the color by _what_ 
 - The label must be concise and clear.
 - The labels can be short description (e.g. Split test data) or contain references to the functions, variables or markdown in the notebook (e.g. \`Step 6: train_test_split()\`).
 - In each box you should draw visualizations (e.g. a tree model, tables, etc.) to help understand the represented content of the box.
-- Visualization are mandatory in output boxes with plots, clearly sketching what is being plotted (e.g. histogram of variable X).
+- Visualizations are mandatory in output boxes with plots, clearly sketching what is being plotted (e.g. histogram of variable X).
 - Each box can have at most one visualization.
+- **IMPORTANT**: When a box has an inner visualization, do NOT use \`label:{}\` (it centers text over the sketch). Instead use a **standalone text element** at the top of the box and start sketch shapes below. See the "Output box with inner sketch" example in the Excalidraw spec above.
 
 Example: If a Jupyter notebook is loading a csv file, you may draw 2 boxes:
 - The first one (BLUE) show "mydata.csv" with a drawing of a file [artifacts lane].
@@ -476,10 +511,32 @@ Label with the plotted variables: "pred vs true", "acc vs epoch", "feature impor
 ## STYLE
 
 Hand-drawn whiteboard feel: slight informality, no pixel-perfect grids.
-Draw lane headers as column titles above a horizontal rule.
+Lane boundaries are drawn as faint background rectangles with header text above — not just floating titles.
 No legends — the color schema above is self-evident.
 Favor fewer, larger, clearly labeled boxes over many small cluttered ones.
 Keep the diagram legible at a glance: if it feels crowded, collapse more steps.
+
+---
+
+## SELF-REVIEW (MANDATORY after first render)
+
+After your first \`create_view\` call, you will receive a screenshot of the rendered diagram.
+You MUST examine it and check for these issues:
+
+1. **Overlapping elements**: Are any boxes overlapping each other? Are any arrows passing through boxes?
+2. **Arrow bundles**: Are two or more arrows drawn on top of each other?
+3. **Lane violations**: Is every box fully within its assigned lane's x-range?
+4. **Label overlap**: Are any labels obscured by sketch elements or other boxes?
+5. **Readability**: Can all text be read clearly? Are any elements too small?
+
+If you find ANY of these issues:
+- Use \`restoreCheckpoint\` with the checkpoint id from the first render
+- Use \`delete\` to remove the offending elements
+- Re-draw them with corrected positions (spread apart, rerouted arrows, repositioned boxes)
+- Call \`create_view\` again with the fixed elements
+
+You may do up to **2 revision passes**. Each pass should fix the most critical issues first.
+The goal: a diagram where no elements overlap, all boxes respect their lanes, and all text is readable.
 `;
 
 // ============================================================
@@ -504,16 +561,20 @@ IMPORTANT: Before calling create_view OR generate_diagram_file for the first tim
    - Color and Lane are INDEPENDENT dimensions
    - Add annotations (data shapes, model configs, metric results)
    - Follow the layout anti-patterns list (no single-column centering, no arrow-through-box, etc.)
+   - **PLAN LANES FIRST**: Decide lane x-ranges and draw lane boundary rectangles BEFORE placing any boxes
 4. Render the diagram with the complete element array — create_view for the live, animated in-chat view (default), or generate_diagram_file if the user only wants the final .excalidraw file
+5. **SELF-REVIEW**: After rendering, examine the screenshot for overlapping elements, lane violations, and label occlusion. Fix issues using restoreCheckpoint + delete (up to 2 revision passes)
 
 Key rules (full details in read_me):
 - Elements are a JSON array of Excalidraw element objects
 - ALWAYS start with a cameraUpdate element (4:3 ratio: 800x600, 400x300, etc.)
 - Use labeled shapes: { "type": "rectangle", "label": { "text": "...", "fontSize": 20 } }
+- For boxes WITH inner visualizations, use standalone text at the top — NOT label:{} which overlaps the sketch
 - Use the spec's color palette — never invent colors
 - Emit elements progressively: background → shape → label → arrows → next shape
 - Use multiple cameraUpdate elements to pan/zoom during streaming — this is the most engaging feature
 - Minimum fontSize: 14 (secondary), 16 (body), 20 (titles)
+- Draw lane boundary rectangles (low opacity) to visually enforce lane columns
 `;
 
 /**
@@ -746,6 +807,14 @@ File output: pass "outputPath" to ALSO save a standalone .excalidraw file to dis
       return {
         content: [{
           type: "text", text: `Diagram displayed! Checkpoint id: "${checkpointId}".
+
+SELF-REVIEW REQUIRED: Examine the screenshot of this diagram carefully. Check for:
+- Boxes overlapping each other or arrows passing through boxes
+- Labels obscured by sketch elements (inner visualizations overlapping text)
+- Boxes placed outside their assigned lane boundaries
+- Arrows drawn on top of other arrows
+If you find issues, use restoreCheckpoint + delete to fix them (up to 2 revision passes).
+
 If user asks to create a new diagram - simply create a new one from scratch.
 However, if the user wants to edit something on this diagram "${checkpointId}", take these steps:
 1) read widget context (using read_widget_context tool) to check if user made any manual edits first
