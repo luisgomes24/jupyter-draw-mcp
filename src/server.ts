@@ -486,9 +486,13 @@ Keep the diagram legible at a glance: if it feels crowded, collapse more steps.
 // MCP Server Instructions — injected into every conversation
 // This ensures the LLM has the spec even if it doesn't call read_me.
 // ============================================================
-const SERVER_INSTRUCTIONS = `You are an Excalidraw diagram assistant specialized in Jupyter notebook diagramming. You create beautiful, hand-drawn diagrams using the create_view tool.
+const SERVER_INSTRUCTIONS = `You are an Excalidraw diagram assistant specialized in Jupyter notebook diagramming. You create beautiful, hand-drawn diagrams.
 
-IMPORTANT: Before calling create_view for the first time, you MUST call read_me to learn the Excalidraw element format, color palettes, camera sizing, AND the Jupyter Notebook Diagramming rules. The spec contains mandatory rules you must follow — do NOT guess the format.
+Two output modes are available — pick based on what the user wants:
+- create_view (DEFAULT): renders the diagram LIVE in an interactive in-chat widget with draw-on animations and camera pans. Use this whenever the user is watching the diagram come together in the conversation.
+- generate_diagram_file: produces a static .excalidraw file (written to disk if a path is given, otherwise returned as text) with no live view. Use this when the user only wants the final file to save, open later, or share.
+
+IMPORTANT: Before calling create_view OR generate_diagram_file for the first time, you MUST call read_me to learn the Excalidraw element format, color palettes, camera sizing, AND the Jupyter Notebook Diagramming rules. The spec contains mandatory rules you must follow — do NOT guess the format. (For generate_diagram_file the camera/animation guidance does not apply.)
 
 ## Required Flow for Jupyter Notebooks
 
@@ -500,8 +504,7 @@ IMPORTANT: Before calling create_view for the first time, you MUST call read_me 
    - Color and Lane are INDEPENDENT dimensions
    - Add annotations (data shapes, model configs, metric results)
    - Follow the layout anti-patterns list (no single-column centering, no arrow-through-box, etc.)
-   - CRITICAL: For every output box (plots, charts, tables), you MUST sketch a visualization inside it using inner shapes (lines, bars, grids). DO NOT leave output boxes empty.
-4. Call create_view with the complete diagram
+4. Render the diagram with the complete element array — create_view for the live, animated in-chat view (default), or generate_diagram_file if the user only wants the final .excalidraw file
 
 Key rules (full details in read_me):
 - Elements are a JSON array of Excalidraw element objects
@@ -611,18 +614,25 @@ export function registerTools(server: McpServer, distDir: string, store: Checkpo
     "create_view",
     {
       title: "Draw Diagram",
-      description: `Renders a hand-drawn diagram using Excalidraw elements.
-Elements stream in one by one with draw-on animations.
-You MUST call read_me first to learn the element format — diagrams will not render correctly without following the spec.`,
+      description: `Renders a hand-drawn diagram LIVE in an interactive in-chat widget — elements stream in one by one with draw-on animations and camera pans. This is the DEFAULT mode for showing a user a diagram being built.
+You MUST call read_me first to learn the element format — diagrams will not render correctly without following the spec.
+
+File output: pass "outputPath" to ALSO save a standalone .excalidraw file to disk (server-side) as a side effect of the live view. For FILE-ONLY output with NO live view (batch generation, or when the user explicitly wants only the .excalidraw file), set "render": false — generate the elements with the same care as the live view (progressive per-node ordering), and either pass "outputPath" to write the file or receive the file JSON back as text.`,
       inputSchema: z.object({
         elements: z.string().describe(
           "JSON array string of Excalidraw elements. Must be valid JSON — no comments, no trailing commas. Keep compact. You MUST call read_me first for format reference."
+        ),
+        outputPath: z.string().optional().describe(
+          "Optional path to also write a standalone .excalidraw file to disk (server-side). A .excalidraw extension is added if missing; parent directories are created automatically. The resolved path is returned. Prefer an absolute path — relative paths resolve from the MCP server's working directory."
+        ),
+        render: z.boolean().optional().describe(
+          "Whether to show the live in-chat widget. Defaults to true. Set to false for file-only output (no animated view) — e.g. batch generation or when the user only wants the .excalidraw file. When false, pass outputPath to write the file, otherwise the file JSON is returned as text."
         ),
       }),
       annotations: { readOnlyHint: true },
       _meta: { ui: { resourceUri } },
     },
-    async ({ elements }): Promise<CallToolResult> => {
+    async ({ elements, outputPath, render }): Promise<CallToolResult> => {
       if (elements.length > MAX_INPUT_BYTES) {
         return {
           content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit. Reduce the number of elements or use checkpoints to build incrementally.` }],
@@ -684,11 +694,54 @@ You MUST call read_me first to learn the element format — diagrams will not re
       const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
       await store.save(checkpointId, { elements: resolvedElements });
 
+      // Build + write a standalone .excalidraw file when requested
+      // (outputPath given as a side-effect of the live view, OR file-only mode).
+      let fileNote = "";
+      let inlineFileJson: string | null = null;
+      if (outputPath || render === false) {
+        const excalidrawElements = convertToExcalidrawFormat(resolvedElements);
+        const json = JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "https://github.com/jupyter-draw-mcp",
+          elements: excalidrawElements,
+          appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+          files: {},
+        }, null, 2);
+
+        if (outputPath) {
+          try {
+            let resolved = path.resolve(outputPath);
+            if (!resolved.toLowerCase().endsWith(".excalidraw")) resolved += ".excalidraw";
+            await fs.mkdir(path.dirname(resolved), { recursive: true });
+            await fs.writeFile(resolved, json, "utf-8");
+            fileNote = `\n\n.excalidraw file written to ${resolved} (${excalidrawElements.length} elements). Open it at https://excalidraw.com or in the Excalidraw app.`;
+          } catch (err) {
+            fileNote = `\n\nFailed to write .excalidraw file: ${(err as Error).message}`;
+          }
+        } else {
+          // render === false with no path → hand the file JSON back as text.
+          inlineFileJson = json;
+        }
+      }
+
       // If read_me was never called, include the spec in the response so the LLM
       // has the format reference for any subsequent create_view calls.
       const specReminder = readMeCalled
         ? ""
         : `\n\n⚠ You did not call read_me before drawing. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${LIVE_UPDATES_PROMPT}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+
+      // File-only mode: no live widget rendered — return a concise file result.
+      if (render === false) {
+        const head = inlineFileJson
+          ? `Generated .excalidraw file (file-only mode, no live view). Save the JSON below with a .excalidraw extension, or pass outputPath next time to write it directly.`
+          : `Generated .excalidraw file (file-only mode, no live view).${fileNote}`;
+        const content: CallToolResult["content"] = [
+          { type: "text", text: `${head} Checkpoint id: "${checkpointId}".${specReminder}` },
+        ];
+        if (inlineFileJson) content.push({ type: "text", text: inlineFileJson });
+        return { content, structuredContent: { checkpointId } };
+      }
 
       return {
         content: [{
@@ -699,7 +752,7 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
 2) decide whether you want to make new diagram from scratch OR - use this one as starting checkpoint:
   simply start from the first element [{"type":"restoreCheckpoint","id":"${checkpointId}"}, ...your new elements...]
   this will use same diagram state as the user currently sees, including any manual edits they made in fullscreen, allowing you to add elements on top.
-  To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}${specReminder}`
+  To remove elements, use: {"type":"delete","ids":"<id1>,<id2>"}${ratioHint}${specReminder}${fileNote}`
         }],
         structuredContent: { checkpointId },
       };
@@ -707,7 +760,390 @@ However, if the user wants to edit something on this diagram "${checkpointId}", 
   );
 
   // ============================================================
-  // Tool 4: export_to_excalidraw (server-side proxy for CORS)
+  // Tool 4: export_diagram (DORMANT FALLBACK — intentionally NOT registered)
+  // Renders .excalidraw + hand-drawn .svg + optional .png to disk via
+  // @moona3k/excalidraw-export (roughjs + Virgil font, no DOM needed).
+  // Kept in the code for future server-side rendering work; the live MCP only
+  // exposes create_view (live view) and generate_diagram_file (.excalidraw file).
+  // Set ENABLE_EXPORT_DIAGRAM to true to re-register it.
+  // ============================================================
+  const ENABLE_EXPORT_DIAGRAM: boolean = false;
+
+  /**
+   * Resolve restoreCheckpoint + delete pseudo-elements into a flat array.
+   * Shared logic extracted from create_view.
+   */
+  async function resolveElements(parsed: any[]): Promise<any[]> {
+    const restoreEl = parsed.find((el: any) => el.type === "restoreCheckpoint");
+
+    if (restoreEl?.id) {
+      const base = await store.load(restoreEl.id);
+      if (!base) throw new Error(`Checkpoint "${restoreEl.id}" not found.`);
+
+      const deleteIds = new Set<string>();
+      for (const el of parsed) {
+        if (el.type === "delete") {
+          for (const id of String(el.ids ?? el.id).split(",")) deleteIds.add(id.trim());
+        }
+      }
+
+      const baseFiltered = base.elements.filter((el: any) =>
+        !deleteIds.has(el.id) && !deleteIds.has(el.containerId)
+      );
+      const newEls = parsed.filter((el: any) =>
+        el.type !== "restoreCheckpoint" && el.type !== "delete"
+      );
+      return [...baseFiltered, ...newEls];
+    }
+
+    return parsed.filter((el: any) => el.type !== "delete");
+  }
+
+  /**
+   * Convert the label shorthand used by the LLM into standard Excalidraw format:
+   * - shape.label → separate text element with containerId
+   * - arrow.label → separate text element with containerId
+   * Also strips cameraUpdate pseudo-elements (not real Excalidraw elements).
+   */
+  function convertToExcalidrawFormat(elements: any[]): any[] {
+    const result: any[] = [];
+
+    for (const el of elements) {
+      // Skip pseudo-elements
+      if (el.type === "cameraUpdate" || el.type === "delete" || el.type === "restoreCheckpoint") {
+        continue;
+      }
+
+      const cleanEl = { ...el };
+      const label = cleanEl.label;
+      delete cleanEl.label;
+
+      // Set Excalidraw defaults
+      cleanEl.strokeColor = cleanEl.strokeColor ?? "#1e1e1e";
+      cleanEl.backgroundColor = cleanEl.backgroundColor ?? "transparent";
+      cleanEl.fillStyle = cleanEl.fillStyle ?? "solid";
+      cleanEl.strokeWidth = cleanEl.strokeWidth ?? 2;
+      cleanEl.roughness = cleanEl.roughness ?? 1;
+      cleanEl.opacity = cleanEl.opacity ?? 100;
+      cleanEl.angle = cleanEl.angle ?? 0;
+      cleanEl.seed = cleanEl.seed ?? Math.floor(Math.random() * 2147483647);
+      cleanEl.version = cleanEl.version ?? 1;
+      cleanEl.versionNonce = cleanEl.versionNonce ?? Math.floor(Math.random() * 2147483647);
+      cleanEl.isDeleted = false;
+      cleanEl.groupIds = cleanEl.groupIds ?? [];
+      cleanEl.frameId = cleanEl.frameId ?? null;
+      cleanEl.link = cleanEl.link ?? null;
+      cleanEl.locked = cleanEl.locked ?? false;
+
+      if (label && (el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond")) {
+        const textId = `${el.id}_label`;
+        cleanEl.boundElements = [
+          ...(cleanEl.boundElements ?? []),
+          { type: "text", id: textId },
+        ];
+        result.push(cleanEl);
+
+        // Create bound text element
+        result.push({
+          type: "text",
+          id: textId,
+          x: el.x + (el.width ?? 0) / 2,
+          y: el.y + (el.height ?? 0) / 2,
+          width: el.width ?? 100,
+          height: label.fontSize ?? 20,
+          text: label.text,
+          fontSize: label.fontSize ?? 20,
+          fontFamily: 1, // Virgil
+          textAlign: "center",
+          verticalAlign: "middle",
+          containerId: el.id,
+          originalText: label.text,
+          autoResize: true,
+          strokeColor: cleanEl.strokeColor,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 0,
+          roughness: 0,
+          opacity: cleanEl.opacity,
+          angle: 0,
+          seed: Math.floor(Math.random() * 2147483647),
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 2147483647),
+          isDeleted: false,
+          groupIds: cleanEl.groupIds,
+          frameId: null,
+          link: null,
+          locked: false,
+        });
+      } else if (label && el.type === "arrow") {
+        const textId = `${el.id}_label`;
+        cleanEl.boundElements = [
+          ...(cleanEl.boundElements ?? []),
+          { type: "text", id: textId },
+        ];
+        result.push(cleanEl);
+
+        const midX = el.x + (el.width ?? 0) / 2;
+        const midY = el.y + (el.height ?? 0) / 2;
+        result.push({
+          type: "text",
+          id: textId,
+          x: midX,
+          y: midY - 10,
+          width: 100,
+          height: label.fontSize ?? 14,
+          text: label.text,
+          fontSize: label.fontSize ?? 14,
+          fontFamily: 1,
+          textAlign: "center",
+          verticalAlign: "middle",
+          containerId: el.id,
+          originalText: label.text,
+          autoResize: true,
+          strokeColor: "#1e1e1e",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 0,
+          roughness: 0,
+          opacity: cleanEl.opacity,
+          angle: 0,
+          seed: Math.floor(Math.random() * 2147483647),
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 2147483647),
+          isDeleted: false,
+          groupIds: [],
+          frameId: null,
+          link: null,
+          locked: false,
+        });
+      } else {
+        result.push(cleanEl);
+      }
+    }
+
+    return result;
+  }
+
+  if (ENABLE_EXPORT_DIAGRAM) server.registerTool(
+    "export_diagram",
+    {
+      description: `Exports a diagram as .excalidraw, .svg, and optionally .png files (no live UI preview).
+Use this when the user wants files saved to disk instead of an interactive streaming preview.
+The SVG output has proper hand-drawn Excalidraw styling (Virgil font, roughjs effects).
+Takes the same elements JSON array as create_view. You MUST call read_me first.`,
+      inputSchema: z.object({
+        elements: z.string().describe(
+          "JSON array string of Excalidraw elements (same format as create_view)."
+        ),
+        outputDir: z.string().describe(
+          "Directory path to save the output files. Will be created if it doesn't exist."
+        ),
+        filename: z.string().optional().describe(
+          "Base filename (without extension). Defaults to 'diagram'. Produces <filename>.excalidraw, <filename>.svg, and optionally <filename>.png."
+        ),
+        png: z.boolean().optional().describe(
+          "If true, also export a PNG rasterization (2x scale). Defaults to false."
+        ),
+        scale: z.number().optional().describe(
+          "PNG scale factor (e.g. 2 for 2x resolution). Only applies when png=true. Defaults to 2."
+        ),
+      }),
+    },
+    async ({ elements, outputDir, filename, png, scale }): Promise<CallToolResult> => {
+      if (elements.length > MAX_INPUT_BYTES) {
+        return {
+          content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit.` }],
+          isError: true,
+        };
+      }
+
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(elements);
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Invalid JSON in elements: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+
+      try {
+        // 1. Resolve checkpoints and deletes
+        const resolved = await resolveElements(parsed);
+
+        // 2. Build .excalidraw file (standard format with bound text elements)
+        const excalidrawElements = convertToExcalidrawFormat(resolved);
+        const excalidrawFile = {
+          type: "excalidraw",
+          version: 2,
+          source: "https://github.com/jupyter-draw-mcp",
+          elements: excalidrawElements,
+          appState: {
+            viewBackgroundColor: "#ffffff",
+            gridSize: null,
+          },
+          files: {},
+        };
+
+        // 3. Save .excalidraw file
+        const baseName = filename ?? "diagram";
+        const resolvedDir = path.resolve(outputDir);
+        await fs.mkdir(resolvedDir, { recursive: true });
+
+        const excalidrawPath = path.join(resolvedDir, `${baseName}.excalidraw`);
+        await fs.writeFile(excalidrawPath, JSON.stringify(excalidrawFile, null, 2), "utf-8");
+
+        // 4. Render hand-drawn SVG using @moona3k/excalidraw-export
+        const { renderToSvg } = await import("@moona3k/excalidraw-export");
+        const svgContent = renderToSvg(excalidrawFile);
+        const svgPath = path.join(resolvedDir, `${baseName}.svg`);
+        await fs.writeFile(svgPath, svgContent, "utf-8");
+
+        // 5. Optionally render PNG via resvg
+        let pngPath: string | null = null;
+        if (png) {
+          try {
+            const { Resvg } = await import("@resvg/resvg-js");
+            const resvg = new Resvg(svgContent, {
+              fitTo: { mode: "zoom" as const, value: scale ?? 2 },
+              font: { loadSystemFonts: true },
+            });
+            const rendered = resvg.render();
+            const pngBuffer = rendered.asPng();
+            pngPath = path.join(resolvedDir, `${baseName}.png`);
+            await fs.writeFile(pngPath, pngBuffer);
+          } catch (pngErr) {
+            // PNG rendering is optional — resvg may not be available on all platforms
+            pngPath = null;
+          }
+        }
+
+        // 6. Also save as checkpoint for potential follow-up edits
+        const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
+        await store.save(checkpointId, { elements: resolved });
+
+        const specReminder = readMeCalled
+          ? ""
+          : `\n\n⚠ You did not call read_me before exporting. Call read_me first for correct diagrams.`;
+
+        const fileList = [
+          `- Excalidraw: ${excalidrawPath}`,
+          `- SVG: ${svgPath}`,
+          ...(pngPath ? [`- PNG: ${pngPath}`] : []),
+        ].join("\n");
+
+        return {
+          content: [{
+            type: "text",
+            text: `Diagram exported successfully!
+
+Files saved:
+${fileList}
+
+Checkpoint id: "${checkpointId}" (use with restoreCheckpoint to edit later).
+
+The .excalidraw file can be opened at excalidraw.com or in the Excalidraw desktop app for editing.
+The .svg has full hand-drawn Excalidraw styling (Virgil font, rough sketched lines).${pngPath ? "\nThe .png is a 2x rasterized version suitable for embedding." : ""}${specReminder}`,
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `Export failed: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // ============================================================
+  // Tool 4b: generate_diagram_file (.excalidraw file output — no live view)
+  // File-mode counterpart to create_view: converts the same elements into a
+  // standard .excalidraw file and either writes it to disk or returns the JSON.
+  // ============================================================
+  server.registerTool(
+    "generate_diagram_file",
+    {
+      description: `Produces a STATIC Excalidraw diagram and returns it as a standard .excalidraw file.
+
+Use this when the user (or you) only want the final diagram FILE: to save to disk.
+If "path" is provided, the .excalidraw file is written there (a .excalidraw extension is added if missing) and the path is returned. 
+Otherwise the file content is returned as text for you to save or hand to the user.`,
+      inputSchema: z.object({
+        elements: z.string().describe(
+          "JSON array string of Excalidraw elements (same format as create_view). Must be valid JSON — no comments, no trailing commas. Call read_me first for the format."
+        ),
+        path: z.string().optional().describe(
+          "Optional output path for the .excalidraw file. If provided, the file is written to disk and the path is returned; otherwise the file content is returned as text."
+        ),
+      }),
+      annotations: { readOnlyHint: false },
+    },
+    async ({ elements, path: outPath }): Promise<CallToolResult> => {
+      if (elements.length > MAX_INPUT_BYTES) {
+        return {
+          content: [{ type: "text", text: `Elements input exceeds ${MAX_INPUT_BYTES} byte limit. Reduce the number of elements.` }],
+          isError: true,
+        };
+      }
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(elements);
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `Invalid JSON in elements: ${(e as Error).message}. Ensure no comments, no trailing commas, and proper quoting.` }],
+          isError: true,
+        };
+      }
+      if (!Array.isArray(parsed)) {
+        return {
+          content: [{ type: "text", text: "elements must be a JSON array of Excalidraw element objects." }],
+          isError: true,
+        };
+      }
+
+      // Convert label shorthand → bound text and strip pseudo-elements (cameraUpdate, etc.)
+      const excalidrawElements = convertToExcalidrawFormat(parsed);
+      const excalidrawFile = {
+        type: "excalidraw",
+        version: 2,
+        source: "https://github.com/jupyter-draw-mcp",
+        elements: excalidrawElements,
+        appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+        files: {},
+      };
+      const json = JSON.stringify(excalidrawFile, null, 2);
+
+      if (outPath) {
+        try {
+          let resolved = path.resolve(outPath);
+          if (!resolved.toLowerCase().endsWith(".excalidraw")) resolved += ".excalidraw";
+          await fs.writeFile(resolved, json, "utf-8");
+          return {
+            content: [{ type: "text", text: `Excalidraw file written to ${resolved} (${excalidrawElements.length} elements). Open it at https://excalidraw.com or in the Excalidraw app.` }],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: `Failed to write file: ${(err as Error).message}` }],
+            isError: true,
+          };
+        }
+      }
+
+      const specReminder = readMeCalled
+        ? ""
+        : `\n\n⚠ You did not call read_me before generating. For future diagrams, follow this spec:\n\n${EXCALIDRAW_SPECS}\n\n---\n\n${JUPYTER_INSTRUCTIONS}`;
+
+      return {
+        content: [
+          { type: "text", text: `Generated .excalidraw file (${excalidrawElements.length} elements). Save the JSON below with a .excalidraw extension, or pass a "path" argument to write it directly next time.${specReminder}` },
+          { type: "text", text: json },
+        ],
+      };
+    },
+  );
+
+  // ============================================================
+  // Tool 5: export_to_excalidraw (server-side proxy for CORS)
   // Called by widget via app.callServerTool(), not by the model.
   // ============================================================
   registerAppTool(server,

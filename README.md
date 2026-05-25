@@ -1,98 +1,62 @@
-# Excalidraw MCP App Server
+# JupyterDraw MCP
 
-MCP server that streams hand-drawn Excalidraw diagrams with smooth viewport camera control and interactive fullscreen editing.
+An MCP server designed to generate beautiful, hand-drawn Excalidraw diagrams from Jupyter notebooks. It reads a notebook, parses its structure, and creates pipeline diagrams that follow strict layout, color, and annotation conventions.
 
-![Demo](docs/demo.gif)
+## Features
 
-## Install
+- **Jupyter Notebook Analysis**: Specialized tools to read `.ipynb` files and understand data science/ML pipelines.
+- **Two Output Modes**:
+  - **Live Interactive View (`create_view`)**: Renders the diagram LIVE in an interactive in-chat widget with draw-on animations and smooth viewport camera panning.
+  - **Static File Export (`generate_diagram_file`)**: Produces a standard `.excalidraw` file directly to disk, without the live chat interface.
+- **Strict Diagramming Rules**: 
+  - **Lanes**: Pipeline stages (ARTIFACTS, PROCESSING, MODELLING, EVALUATION, REPORT).
+  - **Colors**: Entity types (BLUE for data, GRAY for process, RED for model, GREEN for evaluation, WHITE for output).
+  - **Annotations & Sketches**: Automatically includes hyper-parameters, data shapes, metrics, and inner sketches of visualizations (e.g., bar charts, histograms).
 
-Works with any client that supports [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps) — Claude, ChatGPT, VS Code, Goose, and others. If something doesn't work, please [open an issue](https://github.com/antonpk1/excalidraw-mcp-app/issues).
+## Setup & Installation
 
-### Remote (recommended)
+**Prerequisites:** Node.js (v18+)
 
-### `https://mcp.excalidraw.com`
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/jupyter-draw-mcp.git
+   cd jupyter-draw-mcp
+   ```
 
-For apps that don't yet have an official integration, you can add a custom MCP / connector (naming can vary between apps).
+2. Install dependencies and build:
+   ```bash
+   npm install
+   npm run build
+   ```
 
-### Local
+3. Add the server to your MCP client configuration (e.g., Claude Desktop `claude_desktop_config.json`):
 
-**Option A: Download Extension**
+   ```json
+   {
+     "mcpServers": {
+       "jupyter-draw": {
+         "command": "node",
+         "args": ["/absolute/path/to/jupyter-draw-mcp/dist/index.js", "--stdio"]
+       }
+     }
+   }
+   ```
 
-1. Download `excalidraw-mcp-app.mcpb` from [Releases](https://github.com/antonpk1/excalidraw-mcp-app/releases)
-2. Double-click to install in Claude Desktop
+## Usage Examples
 
-**Option B: Build from Source**
+Ask your AI assistant:
+- "Here is my notebook `model_training.ipynb`. Please create a diagram of the pipeline."
+- "Read `analysis.ipynb` and generate an excalidraw file for it."
+- "Show me a visual flow of how the data is processed in `preprocessing.ipynb`."
 
-```bash
-git clone https://github.com/excalidraw/excalidraw-mcp.git
-cd excalidraw-mcp-app
-pnpm install && pnpm run build
-```
+## How it works (for LLMs)
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "excalidraw": {
-      "command": "node",
-      "args": ["/path/to/excalidraw-mcp-app/dist/index.js", "--stdio"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop.
-
-## Usage
-
-Example prompts:
-- "Draw a cute cat using excalidraw"
-- "Draw an architecture diagram showing a user connecting to an API server which talks to a database"
-
-## What are MCP Apps and how can I build one?
-
-Text responses can only go so far. Sometimes users need to interact with data, not just read about it. [MCP Apps](https://github.com/modelcontextprotocol/ext-apps/) is an official Model Context Protocol extension that lets servers return interactive HTML interfaces (data visualizations, forms, dashboards) that render directly in the chat.
-
-- **Getting started for humans**: [documentation](https://modelcontextprotocol.io/docs/extensions/apps)
-- **Getting started for AIs**: [skill](https://github.com/modelcontextprotocol/ext-apps/blob/main/plugins/mcp-apps/skills/create-mcp-app/SKILL.md)
-
-## Contributing
-
-PRs welcome! See [Local](#local) above for build instructions.
-
-### Deploy your own instance
-
-You can deploy your own copy to Vercel in a few clicks:
-
-1. Fork this repo
-2. Go to [vercel.com/new](https://vercel.com/new) and import your fork
-3. No environment variables needed — just deploy
-4. Your server will be at `https://your-project.vercel.app/mcp`
-
-### Release checklist
-
-<details>
-<summary>For maintainers</summary>
-
-```bash
-# 1. Bump version in manifest.json and package.json
-# 2. Build and pack
-pnpm run build && mcpb pack .
-
-# 3. Create GitHub release
-gh release create v0.3.0 excalidraw-mcp-app.mcpb --title "v0.3.0" --notes "What changed"
-
-# 4. Deploy to Vercel
-vercel --prod
-```
-
-</details>
+The AI assistant follows a strict workflow:
+1. Calls `read_me` to ingest the mandatory Excalidraw formatting specs and Jupyter diagramming rules.
+2. Calls `read_notebook` to parse the `.ipynb` file.
+3. Analyzes the cells and maps them to entities (data, processes, models, outputs).
+4. Calls `create_view` (for an animated in-chat experience) or `generate_diagram_file` (for a static file output) with the computed elements array.
 
 ## Credits
 
-Built with [Excalidraw](https://github.com/excalidraw/excalidraw) — a virtual whiteboard for sketching hand-drawn like diagrams.
-
-## License
-
-MIT
+Built on top of [Excalidraw](https://github.com/excalidraw/excalidraw) and [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps).

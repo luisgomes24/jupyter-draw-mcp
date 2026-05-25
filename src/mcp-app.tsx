@@ -861,6 +861,10 @@ export function ExcalidrawAppCore({ app }: { app: App }) {
     }
   }, [displayMode, isNarrow, safeAreaInsets]);
 
+  // File-only mode: the model called create_view with render:false (no live view).
+  // Render nothing — the .excalidraw file is produced server-side.
+  if (toolInput?.render === false) return null;
+
   return (
     <main className={`main${displayMode === "fullscreen" ? " fullscreen" : ""}`} style={displayMode === "fullscreen" && containerHeight ? { height: containerHeight } : undefined}>
       {displayMode === "inline" && (

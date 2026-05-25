@@ -6,7 +6,7 @@ Standalone MCP server that streams Excalidraw diagrams as SVG with hand-drawn an
 
 ```
 src/
-├── server.ts              → Tools (read_me, read_notebook, create_view) + resource
+├── server.ts              → Tools (read_me, read_notebook, create_view, generate_diagram_file) + resource
 ├── main.ts                → HTTP (Streamable) + stdio transports
 ├── checkpoint-store.ts    → CheckpointStore interface + File/Memory/Redis implementations
 ├── prompts/
@@ -38,6 +38,12 @@ Reads a Jupyter notebook (.ipynb) file and returns its code and markdown cells a
 Takes `elements` — a JSON string of standard Excalidraw elements. The widget parses partial JSON during streaming and renders via `exportToSvg` + morphdom diffing. No Excalidraw React canvas component — pure SVG rendering.
 
 **Screenshot as model context:** After final render, the SVG is captured as a 512px-max PNG and sent via `app.updateModelContext()` so the model can see the diagram and iterate on user feedback.
+
+### `generate_diagram_file` (text tool, no UI)
+File-mode counterpart to `create_view`. Takes the same `elements` JSON array but renders nothing live — it converts the elements server-side (labels → bound text, pseudo-elements like `cameraUpdate` stripped via `convertToExcalidrawFormat`) and emits a standard `.excalidraw` file. With an optional `path`, it writes the file to disk and returns the path; otherwise it returns the file JSON as text. No checkpoint support (fresh elements only). Use this when the user only wants the final file; use `create_view` (default) when they want the live animated view.
+
+### `export_diagram` (dormant fallback — not registered)
+Richer file export (`.excalidraw` + hand-drawn `.svg` + optional `.png` via `@moona3k/excalidraw-export` / `@resvg/resvg-js`). Kept in `server.ts` but gated behind `ENABLE_EXPORT_DIAGRAM = false`, so it is NOT exposed as an MCP tool. Flip the flag to re-register it when server-side rendering is wired up.
 
 ## Key Design Decisions
 

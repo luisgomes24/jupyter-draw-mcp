@@ -41,7 +41,8 @@ if (existsSync(promptsSrc)) {
 run("tsc -p tsconfig.server.json");
 
 // 5. Bundle server + index
-run('bun build "src/server.ts" --outdir dist --target node');
+// Note: @resvg/resvg-js contains native .node binaries that can't be inlined
+run('bun build "src/server.ts" --outdir dist --target node --external @resvg/resvg-js');
 run(
-  'bun build "src/main.ts" --outfile "dist/index.js" --target node --banner "#!/usr/bin/env node"',
+  'bun build "src/main.ts" --outfile "dist/index.js" --target node --banner "#!/usr/bin/env node" --external @resvg/resvg-js',
 );
