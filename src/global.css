@@ -1,10 +1,10 @@
 /* Load Excalidraw component CSS from CDN (avoids inlining ~200KB) */
 @import url("https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/index.css");
 
-/* Load Excalidraw's hand-drawn font from CDN (Excalifont = v0.18 default) */
+/* Load Cascadia Code font from CDN */
 @font-face {
-  font-family: "Excalifont";
-  src: url("https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/fonts/Excalifont/Excalifont-Regular-a88b72a24fb54c9f94e3b5fdaa7481c9.woff2") format("woff2");
+  font-family: "Cascadia";
+  src: url("https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/fonts/Cascadia/CascadiaCode-Regular.woff2") format("woff2");
   font-display: swap;
 }
 

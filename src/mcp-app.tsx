@@ -52,7 +52,7 @@ function convertRawElements(els: any[]): any[] {
     el.label ? { ...el, label: { textAlign: "center", verticalAlign: "middle", ...el.label } } : el
   );
   const converted = convertToExcalidrawElements(withDefaults, { regenerateIds: false })
-    .map((el: any) => el.type === "text" ? { ...el, fontFamily: (FONT_FAMILY as any).Excalifont ?? 1 } : el);
+    .map((el: any) => el.type === "text" ? { ...el, fontFamily: (FONT_FAMILY as any).Cascadia ?? 3 } : el);
   return [...converted, ...pseudos];
 }
 
@@ -271,7 +271,7 @@ function DiagramView({ toolInput, isFinal, displayMode, onElements, editedElemen
   const fontsReady = useRef<Promise<void> | null>(null);
   const ensureFontsLoaded = useCallback(() => {
     if (!fontsReady.current) {
-      fontsReady.current = document.fonts.load('20px Excalifont').then(() => {});
+      fontsReady.current = document.fonts.load('20px Cascadia').then(() => {});
     }
     return fontsReady.current;
   }, []);
@@ -701,10 +701,10 @@ export function ExcalidrawAppCore({ app }: { app: App }) {
   // Preload ALL Excalidraw fonts on first mount (inline mode) so they're
   // cached before fullscreen. Without this, Excalidraw's component init
   // downloads Assistant fonts, triggering a font recalc that corrupts
-  // text dimensions measured with not-yet-loaded Excalifont.
+  // text dimensions measured with not-yet-loaded Cascadia.
   useEffect(() => {
     Promise.all([
-      document.fonts.load('20px Excalifont'),
+      document.fonts.load('20px Cascadia'),
       document.fonts.load('400 16px Assistant'),
       document.fonts.load('500 16px Assistant'),
       document.fonts.load('700 16px Assistant'),
@@ -745,7 +745,7 @@ export function ExcalidrawAppCore({ app }: { app: App }) {
     const api = excalidrawApi;
 
     const settle = async () => {
-      try { await document.fonts.load('20px Excalifont'); } catch {}
+      try { await document.fonts.load('20px Cascadia'); } catch {}
       await document.fonts.ready;
 
       const sceneElements = api.getSceneElements();

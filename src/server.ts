@@ -371,15 +371,16 @@ When in doubt: assign the lane by _when_ it happens, assign the color by _what_ 
    - MODELLING: x 420–600
    - EVALUATION: x 620–800
    - REPORT: x 820–1000
-3. **Draw lane boundary rectangles FIRST** — one large, low-opacity background rectangle per lane spanning the full diagram height. These are visual guides that make lanes obvious:
+3. **Draw lane boundary rectangles FIRST** — one large, low-opacity yellow background rectangle per lane spanning the full diagram height. These are visual guides that make lanes obvious:
    \`\`\`json
-   { "type": "rectangle", "id": "lane_processing", "x": 200, "y": 50, "width": 200, "height": 600, "backgroundColor": "#f8f9fa", "fillStyle": "solid", "opacity": 15, "strokeColor": "#dee2e6", "strokeWidth": 1 }
+   { "type": "rectangle", "id": "lane_processing", "x": 200, "y": 50, "width": 200, "height": 600, "backgroundColor": "#f5dc92ff", "fillStyle": "solid", "opacity": 15, "strokeColor": "#ffc822ff", "strokeWidth": 1 }
    \`\`\`
-4. **Draw lane header text** above each lane boundary rectangle:
+4. **Draw lane header text** above each lane boundary rectangle in black:
    \`\`\`json
-   { "type": "text", "id": "lane_processing_hdr", "x": 240, "y": 30, "text": "PROCESSING", "fontSize": 20, "strokeColor": "#868e96" }
+   { "type": "text", "id": "lane_processing_hdr", "x": 240, "y": 30, "text": "PROCESSING", "fontSize": 20, "strokeColor": "#000a14ff" }
    \`\`\`
 5. **Place ALL boxes strictly within their lane's x-range.** A box's x position and x+width must fall within the assigned lane boundaries. No box may straddle or exceed its lane.
+6. ** Delimite lanes using dashed lines with opacity 15 and stroke width 1.
 
 ### LANE ENFORCEMENT RULES
 
